@@ -1,0 +1,26 @@
+﻿{
+  "name": "game64x64-x-or",
+  "version": "1.0.0",
+  "private": true,
+  "description": "San choi sac mau 64x64 - Giai doan 5 multi-server",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "pm2:start": "pm2 start config/ecosystem.config.js",
+    "pm2:restart": "pm2 restart game64x64",
+    "pm2:stop": "pm2 stop game64x64",
+    "test:smoke": "node tests/realtime-smoke.test.js",
+    "test:stats": "node tests/stats-smoke.test.js",
+    "test:all": "npm run test:smoke && npm run test:stats"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "express": "^4.21.2",
+    "redis": "^4.7.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
+  }
+}

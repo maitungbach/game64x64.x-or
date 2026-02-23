@@ -1,0 +1,5 @@
+﻿# Ignore runtime/dependency files
+node_modules/
+logs/
+npm-debug.log*
+.env

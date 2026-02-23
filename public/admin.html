@@ -1,0 +1,60 @@
+﻿<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Game64x64 Admin Dashboard</title>
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <h1>Admin Dashboard</h1>
+      <a href="/">Mo game</a>
+    </header>
+
+    <section class="panel">
+      <label for="token">Stats token (neu co)</label>
+      <div class="row">
+        <input id="token" type="password" placeholder="Nhap STATS_TOKEN" />
+        <button id="applyToken" type="button">Ap dung</button>
+      </div>
+      <p id="authStatus">Dang su dung /stats khong token.</p>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Health</h2>
+        <ul>
+          <li><strong>ok:</strong> <span id="healthOk">-</span></li>
+          <li><strong>players:</strong> <span id="healthPlayers">-</span></li>
+          <li><strong>redis:</strong> <span id="healthRedis">-</span></li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2>Runtime</h2>
+        <ul>
+          <li><strong>uptime:</strong> <span id="uptime">-</span></li>
+          <li><strong>pid:</strong> <span id="pid">-</span></li>
+          <li><strong>playersOnline:</strong> <span id="playersOnline">-</span></li>
+          <li><strong>socketsOnline:</strong> <span id="socketsOnline">-</span></li>
+        </ul>
+      </article>
+
+      <article class="card wide">
+        <h2>Counters</h2>
+        <div id="counters" class="counter-grid"></div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Last update</h2>
+      <p id="lastUpdate">-</p>
+      <p id="error">-</p>
+    </section>
+  </main>
+
+  <script src="admin.js"></script>
+</body>
+</html>
