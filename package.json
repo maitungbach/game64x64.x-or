@@ -11,7 +11,8 @@
     "pm2:stop": "pm2 stop game64x64",
     "test:smoke": "node tests/realtime-smoke.test.js",
     "test:stats": "node tests/stats-smoke.test.js",
-    "test:all": "npm run test:smoke && npm run test:stats"
+    "test:all": "npm run test:smoke && npm run test:stats",
+    "test:load": "node scripts/load-test.js"
   },
   "engines": {
     "node": ">=18"

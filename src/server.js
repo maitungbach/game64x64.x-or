@@ -15,6 +15,7 @@ const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const GRID_SIZE = 64;
 const MAX_SPAWN_ATTEMPTS = 500;
 const MOVE_INTERVAL_MS = 50;
+const BROADCAST_INTERVAL_MS = Number(process.env.BROADCAST_INTERVAL_MS || 33);
 
 const ENABLE_REDIS = String(process.env.ENABLE_REDIS || "false") === "true";
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
@@ -38,7 +39,13 @@ const stats = {
   movesRejectedRateLimit: 0,
   movesRejectedOccupied: 0,
   errorsTotal: 0,
+  broadcastRequestsTotal: 0,
+  broadcastsEmitted: 0,
+  broadcastsCoalesced: 0,
 };
+let broadcastTimer = null;
+let broadcastPending = false;
+let broadcastInFlight = false;
 
 function randomInt(maxExclusive) {
   return Math.floor(Math.random() * maxExclusive);
@@ -183,9 +190,38 @@ function getNextPosition(player, direction) {
   return { x: nextX, y: nextY };
 }
 
-async function emitPlayers() {
+async function emitPlayersNow() {
   const list = await getPlayersList();
   io.emit("updatePlayers", list);
+  stats.broadcastsEmitted += 1;
+}
+
+function scheduleEmitPlayers() {
+  stats.broadcastRequestsTotal += 1;
+
+  if (broadcastTimer || broadcastInFlight) {
+    stats.broadcastsCoalesced += 1;
+    broadcastPending = true;
+    return;
+  }
+
+  broadcastTimer = setTimeout(async () => {
+    broadcastTimer = null;
+    broadcastInFlight = true;
+
+    try {
+      await emitPlayersNow();
+    } catch (error) {
+      stats.errorsTotal += 1;
+      console.error("[broadcast] failed:", error);
+    } finally {
+      broadcastInFlight = false;
+      if (broadcastPending) {
+        broadcastPending = false;
+        scheduleEmitPlayers();
+      }
+    }
+  }, BROADCAST_INTERVAL_MS);
 }
 
 function getStatsSnapshot(playersCount) {
@@ -262,7 +298,7 @@ io.on("connection", (socket) => {
       color: randomColor(),
     });
 
-    await emitPlayers();
+    scheduleEmitPlayers();
   })().catch((error) => {
     stats.errorsTotal += 1;
     console.error("[connection] failed:", error);
@@ -301,7 +337,7 @@ io.on("connection", (socket) => {
       player.x = next.x;
       player.y = next.y;
       await savePlayer(player);
-      await emitPlayers();
+      scheduleEmitPlayers();
       stats.movesApplied += 1;
     })().catch((error) => {
       stats.errorsTotal += 1;
@@ -315,7 +351,7 @@ io.on("connection", (socket) => {
     (async () => {
       await removePlayer(socket.id);
       lastMoveAt.delete(socket.id);
-      await emitPlayers();
+      scheduleEmitPlayers();
     })().catch((error) => {
       stats.errorsTotal += 1;
       console.error("[disconnect] failed:", error);

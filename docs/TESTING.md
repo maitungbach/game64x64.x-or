@@ -34,3 +34,14 @@ npm run test:all
 ## Luu y
 - Cac test tu bat server rieng (`3101`, `3102`).
 - Test mac dinh chay voi `ENABLE_REDIS=false`.
+
+## Load test nhieu client
+Mo phong tai voi nhieu client Socket.io:
+```bash
+npm run test:load -- --clients 50 --duration 30 --moves 6
+```
+
+Neu `/api/stats` co token:
+```bash
+npm run test:load -- --token <STATS_TOKEN>
+```

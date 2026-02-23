@@ -24,3 +24,12 @@ Trang `/admin` co o nhap token de gui header nay.
 curl http://127.0.0.1:3000/api/health
 curl -H "x-stats-token: <token>" http://127.0.0.1:3000/api/stats
 ```
+
+## Broadcast batching
+Server gop cac request broadcast trong khoang `BROADCAST_INTERVAL_MS` (mac dinh 33ms)
+nham giam tan suat `updatePlayers` duoi tai cao.
+
+Theo doi trong `/api/stats`:
+- `broadcastRequestsTotal`
+- `broadcastsEmitted`
+- `broadcastsCoalesced`
