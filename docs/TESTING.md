@@ -31,9 +31,24 @@ Hoac chay tat ca:
 npm run test:all
 ```
 
+## Smoke test Redis atomic (HA)
+Kiem tra khi bat Redis:
+- Khong co 2 player trung 1 o trong luong update realtime
+- Redis index theo player va theo cell luon dong bo
+
+Chay lenh:
+```bash
+npm run test:redis
+```
+
+Luu y:
+- Test tu skip neu may khong co Redis tai `REDIS_URL`.
+- Neu Redis co san, test se tao key tam va tu xoa sau khi xong.
+
 ## Luu y
-- Cac test tu bat server rieng (`3101`, `3102`).
-- Test mac dinh chay voi `ENABLE_REDIS=false`.
+- Cac test tu bat server rieng (`3101`, `3102`, `3103`).
+- `test:smoke` va `test:stats` chay voi `ENABLE_REDIS=false`.
+- `test:redis` chay voi `ENABLE_REDIS=true`.
 
 ## Load test nhieu client
 Mo phong tai voi nhieu client Socket.io:

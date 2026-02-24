@@ -31,6 +31,7 @@ NODE_ENV=production
 ENABLE_REDIS=true
 REDIS_URL=redis://<REDIS_HOST>:6379
 REDIS_PLAYERS_KEY=game64x64:players
+REDIS_CELLS_KEY=game64x64:cells
 ```
 
 Chay PM2:
