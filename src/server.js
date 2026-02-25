@@ -1,6 +1,7 @@
 ﻿const express = require("express");
 const http = require("http");
 const path = require("path");
+const crypto = require("crypto");
 const { Server } = require("socket.io");
 const { createAdapter } = require("@socket.io/redis-adapter");
 const { createClient } = require("redis");
@@ -24,12 +25,36 @@ const ENABLE_REDIS = String(process.env.ENABLE_REDIS || "false") === "true";
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const REDIS_PLAYERS_KEY = process.env.REDIS_PLAYERS_KEY || "game64x64:players";
 const REDIS_CELLS_KEY = process.env.REDIS_CELLS_KEY || "game64x64:cells";
+const REDIS_USERS_KEY = process.env.REDIS_USERS_KEY || "game64x64:users";
+const REDIS_SESSION_PREFIX = process.env.REDIS_SESSION_PREFIX || "game64x64:session:";
+const REDIS_USER_SESSION_PREFIX = process.env.REDIS_USER_SESSION_PREFIX || "game64x64:user-session:";
 const STATS_TOKEN = process.env.STATS_TOKEN || "";
 const STARTED_AT = new Date().toISOString();
+const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "game64x64_session";
+const AUTH_COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || "false") === "true";
+const AUTH_SESSION_TTL_SEC = Number(process.env.AUTH_SESSION_TTL_SEC || 86400);
+const AUTH_REJECT_CONCURRENT = String(process.env.AUTH_REJECT_CONCURRENT || "true") === "true";
+const AUTH_SEED_TEST_USERS = String(process.env.AUTH_SEED_TEST_USERS || "true") === "true";
+const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED || "true") === "true";
+const AUTH_DEFAULT_PASSWORD_MIN = 6;
+const AUTH_DEFAULT_NAME_MAX = 24;
+const AUTH_DEFAULT_NAME_MIN = 2;
 
 const players = new Map();
 const lastMoveAt = new Map();
 const VALID_DIRECTIONS = new Set(["up", "down", "left", "right"]);
+const usersByEmail = new Map();
+const usersById = new Map();
+const sessionsByToken = new Map();
+const userSessionTokenByUserId = new Map();
+
+const TEST_USERS_SEED = [
+  { name: "Tester 01", email: "tester01@example.com", password: "Test123!" },
+  { name: "Tester 02", email: "tester02@example.com", password: "Test123!" },
+  { name: "Tester 03", email: "tester03@example.com", password: "Test123!" },
+  { name: "Tester 04", email: "tester04@example.com", password: "Test123!" },
+  { name: "Tester 05", email: "tester05@example.com", password: "Test123!" },
+];
 
 let redisPubClient = null;
 let redisSubClient = null;
@@ -72,6 +97,335 @@ function normalizeSeq(value) {
     return null;
   }
   return value;
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeDisplayName(value) {
+  const compact = String(value || "").trim().replace(/\s+/g, " ");
+  return compact.slice(0, AUTH_DEFAULT_NAME_MAX);
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function randomId(bytes = 16) {
+  return crypto.randomBytes(bytes).toString("hex");
+}
+
+function hashPassword(plainPassword) {
+  const salt = randomId(16);
+  const hashed = crypto.scryptSync(String(plainPassword), salt, 64).toString("hex");
+  return `scrypt:${salt}:${hashed}`;
+}
+
+function verifyPassword(plainPassword, stored) {
+  const raw = String(stored || "");
+  const parts = raw.split(":");
+  if (parts.length !== 3 || parts[0] !== "scrypt") {
+    return false;
+  }
+
+  const [, salt, expectedHex] = parts;
+  const expected = Buffer.from(expectedHex, "hex");
+  const actual = crypto.scryptSync(String(plainPassword), salt, expected.length);
+  if (actual.length !== expected.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(actual, expected);
+}
+
+function cookieSerialize(name, value, maxAgeSec, clear = false) {
+  const base = `${name}=${clear ? "" : encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax`;
+  const secure = AUTH_COOKIE_SECURE ? "; Secure" : "";
+  if (clear) {
+    return `${base}; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${secure}`;
+  }
+  return `${base}; Max-Age=${maxAgeSec}${secure}`;
+}
+
+function parseCookies(cookieHeader) {
+  const parsed = {};
+  const raw = String(cookieHeader || "");
+  if (!raw) {
+    return parsed;
+  }
+
+  for (const part of raw.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+    if (!name) {
+      continue;
+    }
+    parsed[name] = decodeURIComponent(rest.join("=") || "");
+  }
+  return parsed;
+}
+
+function getAuthTokenFromRequest(req) {
+  const cookies = parseCookies(req?.headers?.cookie);
+  return cookies[AUTH_COOKIE_NAME] || null;
+}
+
+function getAuthTokenFromSocket(socket) {
+  const cookieHeader = socket?.handshake?.headers?.cookie;
+  const cookies = parseCookies(cookieHeader);
+  return cookies[AUTH_COOKIE_NAME] || null;
+}
+
+function toPublicUser(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    createdAt: user.createdAt,
+  };
+}
+
+function parseAuthUser(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      !parsed
+      || typeof parsed.id !== "string"
+      || typeof parsed.email !== "string"
+      || typeof parsed.name !== "string"
+      || typeof parsed.passwordHash !== "string"
+    ) {
+      return null;
+    }
+    return {
+      id: parsed.id,
+      email: normalizeEmail(parsed.email),
+      name: normalizeDisplayName(parsed.name),
+      passwordHash: parsed.passwordHash,
+      createdAt: parsed.createdAt || new Date().toISOString(),
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function parseAuthSession(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      !parsed
+      || typeof parsed.token !== "string"
+      || typeof parsed.userId !== "string"
+      || typeof parsed.email !== "string"
+      || typeof parsed.name !== "string"
+      || !Number.isInteger(parsed.expiresAt)
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function redisSessionKey(token) {
+  return `${REDIS_SESSION_PREFIX}${token}`;
+}
+
+function redisUserSessionKey(userId) {
+  return `${REDIS_USER_SESSION_PREFIX}${userId}`;
+}
+
+async function getUserByEmail(email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) {
+    return null;
+  }
+
+  if (!redisDataClient) {
+    return usersByEmail.get(normalized) || null;
+  }
+
+  const raw = await redisDataClient.hGet(REDIS_USERS_KEY, normalized);
+  if (!raw) {
+    return null;
+  }
+  return parseAuthUser(raw);
+}
+
+async function getUserById(userId) {
+  if (!userId) {
+    return null;
+  }
+
+  if (!redisDataClient) {
+    return usersById.get(userId) || null;
+  }
+
+  const entries = await redisDataClient.hVals(REDIS_USERS_KEY);
+  for (const entry of entries) {
+    const user = parseAuthUser(entry);
+    if (user && user.id === userId) {
+      return user;
+    }
+  }
+  return null;
+}
+
+async function saveUser(user) {
+  if (!redisDataClient) {
+    usersByEmail.set(user.email, user);
+    usersById.set(user.id, user);
+    return;
+  }
+
+  await redisDataClient.hSet(REDIS_USERS_KEY, user.email, JSON.stringify(user));
+}
+
+async function getUserSessionToken(userId) {
+  if (!userId) {
+    return null;
+  }
+  if (!redisDataClient) {
+    return userSessionTokenByUserId.get(userId) || null;
+  }
+  return await redisDataClient.get(redisUserSessionKey(userId));
+}
+
+async function deleteSession(token, session = null) {
+  if (!token) {
+    return;
+  }
+
+  if (!redisDataClient) {
+    const existing = session || sessionsByToken.get(token);
+    sessionsByToken.delete(token);
+    if (existing && userSessionTokenByUserId.get(existing.userId) === token) {
+      userSessionTokenByUserId.delete(existing.userId);
+    }
+    return;
+  }
+
+  const existing = session || (await getSessionByToken(token));
+  await redisDataClient.del(redisSessionKey(token));
+  if (existing) {
+    const key = redisUserSessionKey(existing.userId);
+    const current = await redisDataClient.get(key);
+    if (current === token) {
+      await redisDataClient.del(key);
+    }
+  }
+}
+
+async function getSessionByToken(token) {
+  if (!token) {
+    return null;
+  }
+
+  if (!redisDataClient) {
+    const session = sessionsByToken.get(token) || null;
+    if (!session) {
+      return null;
+    }
+    if (session.expiresAt <= Date.now()) {
+      await deleteSession(token, session);
+      return null;
+    }
+    return session;
+  }
+
+  const raw = await redisDataClient.get(redisSessionKey(token));
+  if (!raw) {
+    return null;
+  }
+
+  const session = parseAuthSession(raw);
+  if (!session) {
+    await redisDataClient.del(redisSessionKey(token));
+    return null;
+  }
+
+  if (session.expiresAt <= Date.now()) {
+    await deleteSession(token, session);
+    return null;
+  }
+  return session;
+}
+
+async function saveSession(session) {
+  if (!redisDataClient) {
+    sessionsByToken.set(session.token, session);
+    userSessionTokenByUserId.set(session.userId, session.token);
+    return;
+  }
+
+  await redisDataClient.setEx(
+    redisSessionKey(session.token),
+    AUTH_SESSION_TTL_SEC,
+    JSON.stringify(session),
+  );
+  await redisDataClient.setEx(
+    redisUserSessionKey(session.userId),
+    AUTH_SESSION_TTL_SEC,
+    session.token,
+  );
+}
+
+async function refreshSession(session) {
+  const next = {
+    ...session,
+    lastSeenAt: Date.now(),
+    expiresAt: Date.now() + (AUTH_SESSION_TTL_SEC * 1000),
+  };
+  await saveSession(next);
+  return next;
+}
+
+async function createSessionForUser(user) {
+  const existingToken = await getUserSessionToken(user.id);
+  if (existingToken) {
+    const existing = await getSessionByToken(existingToken);
+    if (existing && AUTH_REJECT_CONCURRENT) {
+      return { ok: false, reason: "already_online" };
+    }
+    if (existing) {
+      await deleteSession(existingToken, existing);
+    }
+  }
+
+  const session = {
+    token: randomId(24),
+    userId: user.id,
+    email: user.email,
+    name: user.name,
+    createdAt: Date.now(),
+    lastSeenAt: Date.now(),
+    expiresAt: Date.now() + (AUTH_SESSION_TTL_SEC * 1000),
+  };
+  await saveSession(session);
+  return { ok: true, session };
+}
+
+async function ensureSeedUsers() {
+  if (!AUTH_SEED_TEST_USERS) {
+    return;
+  }
+
+  for (const seed of TEST_USERS_SEED) {
+    // eslint-disable-next-line no-await-in-loop
+    const existing = await getUserByEmail(seed.email);
+    if (existing) {
+      continue;
+    }
+    const user = {
+      id: randomId(12),
+      email: normalizeEmail(seed.email),
+      name: normalizeDisplayName(seed.name),
+      passwordHash: hashPassword(seed.password),
+      createdAt: new Date().toISOString(),
+    };
+    // eslint-disable-next-line no-await-in-loop
+    await saveUser(user);
+  }
 }
 
 function parsePlayer(raw) {
@@ -513,7 +867,125 @@ function isStatsAuthorized(req) {
   return req.get("x-stats-token") === STATS_TOKEN;
 }
 
+function setAuthCookie(res, token) {
+  res.setHeader("Set-Cookie", cookieSerialize(AUTH_COOKIE_NAME, token, AUTH_SESSION_TTL_SEC, false));
+}
+
+function clearAuthCookie(res) {
+  res.setHeader("Set-Cookie", cookieSerialize(AUTH_COOKIE_NAME, "", 0, true));
+}
+
+async function getAuthenticatedUserFromRequest(req) {
+  const token = getAuthTokenFromRequest(req);
+  if (!token) {
+    return null;
+  }
+
+  const session = await getSessionByToken(token);
+  if (!session) {
+    return null;
+  }
+
+  const user = await getUserById(session.userId);
+  if (!user) {
+    await deleteSession(token, session);
+    return null;
+  }
+
+  const refreshed = await refreshSession(session);
+  return { token, session: refreshed, user };
+}
+
+app.use(express.json({ limit: "32kb" }));
 app.use(express.static(PUBLIC_DIR));
+
+app.post("/api/auth/register", async (req, res) => {
+  const name = normalizeDisplayName(req.body?.name);
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.password || "");
+
+  if (
+    !name
+    || name.length < AUTH_DEFAULT_NAME_MIN
+    || !isValidEmail(email)
+    || password.length < AUTH_DEFAULT_PASSWORD_MIN
+  ) {
+    res.status(400).json({ ok: false, message: "Invalid register payload" });
+    return;
+  }
+
+  const existing = await getUserByEmail(email);
+  if (existing) {
+    res.status(409).json({ ok: false, message: "Email already registered" });
+    return;
+  }
+
+  const user = {
+    id: randomId(12),
+    email,
+    name,
+    passwordHash: hashPassword(password),
+    createdAt: new Date().toISOString(),
+  };
+  await saveUser(user);
+
+  const created = await createSessionForUser(user);
+  if (!created.ok) {
+    res.status(409).json({ ok: false, message: created.reason });
+    return;
+  }
+
+  setAuthCookie(res, created.session.token);
+  res.status(201).json({ ok: true, user: toPublicUser(user) });
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.password || "");
+  if (!isValidEmail(email) || !password) {
+    res.status(400).json({ ok: false, message: "Invalid login payload" });
+    return;
+  }
+
+  const user = await getUserByEmail(email);
+  if (!user || !verifyPassword(password, user.passwordHash)) {
+    res.status(401).json({ ok: false, message: "Invalid credentials" });
+    return;
+  }
+
+  const created = await createSessionForUser(user);
+  if (!created.ok) {
+    res.status(409).json({ ok: false, message: created.reason });
+    return;
+  }
+
+  setAuthCookie(res, created.session.token);
+  res.json({ ok: true, user: toPublicUser(user) });
+});
+
+app.post("/api/auth/logout", async (req, res) => {
+  const token = getAuthTokenFromRequest(req);
+  if (token) {
+    const session = await getSessionByToken(token);
+    await deleteSession(token, session);
+  }
+  clearAuthCookie(res);
+  res.json({ ok: true });
+});
+
+app.get("/api/auth/me", async (req, res) => {
+  const auth = await getAuthenticatedUserFromRequest(req);
+  if (!auth) {
+    clearAuthCookie(res);
+    res.status(401).json({ ok: false, message: "Unauthorized" });
+    return;
+  }
+
+  res.json({
+    ok: true,
+    user: toPublicUser(auth.user),
+  });
+});
 
 async function handleHealth(_req, res) {
   const list = await getPlayersList();
@@ -549,6 +1021,42 @@ app.get("/admin", (_req, res) => {
 app.get("*", (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
+
+if (AUTH_REQUIRED) {
+  io.use((socket, next) => {
+    (async () => {
+      const token = getAuthTokenFromSocket(socket);
+      if (!token) {
+        next(new Error("unauthorized"));
+        return;
+      }
+
+      const session = await getSessionByToken(token);
+      if (!session) {
+        next(new Error("unauthorized"));
+        return;
+      }
+
+      const user = await getUserById(session.userId);
+      if (!user) {
+        await deleteSession(token, session);
+        next(new Error("unauthorized"));
+        return;
+      }
+
+      await refreshSession(session);
+      socket.data.auth = {
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+      };
+      next();
+    })().catch((error) => {
+      console.error("[socket-auth] failed:", error);
+      next(new Error("unauthorized"));
+    });
+  });
+}
 
 io.on("connection", (socket) => {
   stats.connectionsTotal += 1;
@@ -668,6 +1176,7 @@ io.on("connection", (socket) => {
 
 async function start() {
   await connectRedisIfEnabled();
+  await ensureSeedUsers();
 
   if (SNAPSHOT_INTERVAL_MS > 0) {
     const snapshotTimer = setInterval(() => {

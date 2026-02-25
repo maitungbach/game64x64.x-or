@@ -61,6 +61,7 @@ async function main() {
       ...process.env,
       PORT: String(TEST_PORT),
       ENABLE_REDIS: "true",
+      AUTH_REQUIRED: "false",
       REDIS_URL,
       REDIS_PLAYERS_KEY,
       REDIS_CELLS_KEY,

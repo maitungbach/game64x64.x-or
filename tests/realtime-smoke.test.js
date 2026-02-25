@@ -82,6 +82,7 @@ async function run() {
       ...process.env,
       PORT: String(TEST_PORT),
       ENABLE_REDIS: "false",
+      AUTH_REQUIRED: "false",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

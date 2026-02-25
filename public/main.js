@@ -68,6 +68,42 @@ function redirectToAuth() {
   window.location.replace(LOGIN_URL);
 }
 
+async function callAuthApi(path, method = "GET") {
+  const response = await fetch(path, {
+    method,
+    credentials: "include",
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = null;
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data: payload,
+  };
+}
+
+async function fetchAuthMe() {
+  const result = await callAuthApi("/api/auth/me", "GET");
+  if (!result.ok) {
+    return null;
+  }
+  return result.data?.user || null;
+}
+
+async function logoutFromServer() {
+  try {
+    await callAuthApi("/api/auth/logout", "POST");
+  } catch (_error) {
+    // Ignore network failures on logout.
+  }
+}
+
 function readSession() {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
@@ -181,6 +217,7 @@ function handleSessionConflict(message) {
   if (socket.connected) {
     socket.disconnect();
   }
+  logoutFromServer();
   stopLockHeartbeat();
   playersById.clear();
   pendingInputs = [];
@@ -224,9 +261,10 @@ function renderAccountBar() {
   accountNameEl.textContent = `Xin chao, ${session.name || session.email}`;
   authActionEl.textContent = "Dang xuat";
   authActionEl.href = "#";
-  authActionEl.onclick = (event) => {
+  authActionEl.onclick = async (event) => {
     event.preventDefault();
     releaseOwnedAccountLock(session);
+    await logoutFromServer();
     sessionStorage.removeItem(SESSION_KEY);
     if (socket.connected) {
       socket.disconnect();
@@ -609,19 +647,41 @@ socket.on("updatePlayers", applySnapshot);
 socket.on("playerMoved", applyMoveEvent);
 socket.on("playerJoined", applyJoinEvent);
 socket.on("playerLeft", applyLeftEvent);
+socket.on("connect_error", () => {
+  handleSessionConflict("Phien dang nhap khong hop le.");
+});
+
+async function bootstrapAuthAndConnect() {
+  const initialSession = readSession();
+  if (!initialSession) {
+    statusEl.textContent = "Ban can dang nhap de vao game. Dang chuyen huong...";
+    window.setTimeout(redirectToAuth, 150);
+    return;
+  }
+
+  if (!ensureOwnedAccountLock(initialSession)) {
+    statusEl.textContent = "Tai khoan dang duoc su dung o tab khac.";
+    window.setTimeout(redirectToAuth, 300);
+    return;
+  }
+
+  try {
+    const me = await fetchAuthMe();
+    if (!me || normalizeEmail(me.email) !== normalizeEmail(initialSession.email)) {
+      handleSessionConflict("Phien dang nhap da het han hoac bi thay doi.");
+      return;
+    }
+  } catch (_error) {
+    statusEl.textContent = "Khong the xac thuc tai khoan. Dang thu lai...";
+    window.setTimeout(redirectToAuth, 500);
+    return;
+  }
+
+  startLockHeartbeat();
+  socket.connect();
+}
 
 drawGridLayer();
 renderAccountBar();
 renderFrame();
-
-const initialSession = readSession();
-if (!initialSession) {
-  statusEl.textContent = "Ban can dang nhap de vao game. Dang chuyen huong...";
-  window.setTimeout(redirectToAuth, 150);
-} else if (!ensureOwnedAccountLock(initialSession)) {
-  statusEl.textContent = "Tai khoan dang duoc su dung o tab khac.";
-  window.setTimeout(redirectToAuth, 300);
-} else {
-  startLockHeartbeat();
-  socket.connect();
-}
+bootstrapAuthAndConnect();
