@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>San choi sac mau 64x64 - Giai doan 2 realtime</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <div class="account-bar">
+      <span id="accountName">Chua dang nhap</span>
+      <a id="authAction" href="/auth.html">Dang nhap / Dang ky</a>
+    </div>
+    <h1>San choi sac mau 64x64</h1>
+    <p>Dung phim mui ten hoac WASD de di chuyen pixel realtime.</p>
+    <p><a href="/admin">Mo trang admin dashboard</a></p>
+    <canvas id="game" width="640" height="640" aria-label="Luoi 64x64"></canvas>
+    <p id="status" aria-live="polite"></p>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

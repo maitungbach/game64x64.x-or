@@ -7,15 +7,18 @@ const { createClient } = require("redis");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  transports: ["websocket"],
+});
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT_DIR = path.join(__dirname, "..");
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const GRID_SIZE = 64;
 const MAX_SPAWN_ATTEMPTS = 500;
-const MOVE_INTERVAL_MS = 50;
+const MOVE_INTERVAL_MS = Number(process.env.MOVE_INTERVAL_MS || 16);
 const BROADCAST_INTERVAL_MS = Number(process.env.BROADCAST_INTERVAL_MS || 33);
+const SNAPSHOT_INTERVAL_MS = Number(process.env.SNAPSHOT_INTERVAL_MS || 250);
 
 const ENABLE_REDIS = String(process.env.ENABLE_REDIS || "false") === "true";
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
@@ -62,6 +65,13 @@ function toCellKey(x, y) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function normalizeSeq(value) {
+  if (!Number.isInteger(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) {
+    return null;
+  }
+  return value;
 }
 
 function parsePlayer(raw) {
@@ -384,7 +394,11 @@ async function movePlayerRedis(playerId, direction) {
   );
 
   if (moved === 1 || moved === 2) {
-    return { state: "applied" };
+    const updated = await getPlayerById(playerId);
+    if (!updated) {
+      return { state: "missing" };
+    }
+    return { state: "applied", player: updated };
   }
   if (moved === 0) {
     return { state: "occupied" };
@@ -413,6 +427,43 @@ async function emitPlayersNow() {
   const list = await getPlayersList();
   io.emit("updatePlayers", list);
   stats.broadcastsEmitted += 1;
+}
+
+function emitMoveAck(socket, seq, ok, reason, player = null) {
+  socket.emit("moveAck", {
+    seq,
+    ok,
+    reason: reason || null,
+    x: player ? player.x : null,
+    y: player ? player.y : null,
+  });
+}
+
+function emitPlayerMoved(player, seq) {
+  if (!player) {
+    return;
+  }
+
+  io.emit("playerMoved", {
+    id: player.id,
+    x: player.x,
+    y: player.y,
+    color: player.color,
+    seq,
+    at: Date.now(),
+  });
+}
+
+function emitPlayerJoined(player) {
+  if (!player) {
+    return;
+  }
+
+  io.emit("playerJoined", player);
+}
+
+function emitPlayerLeft(playerId) {
+  io.emit("playerLeft", { id: playerId });
 }
 
 function scheduleEmitPlayers() {
@@ -503,12 +554,15 @@ io.on("connection", (socket) => {
   stats.connectionsTotal += 1;
 
   (async () => {
+    let createdPlayer = null;
+
     if (redisDataClient) {
       const created = await spawnPlayerRedis(socket.id);
       if (!created) {
         socket.disconnect(true);
         return;
       }
+      createdPlayer = created;
     } else {
       const spawn = await findSpawnPosition();
       if (!spawn) {
@@ -516,15 +570,17 @@ io.on("connection", (socket) => {
         return;
       }
 
-      await savePlayer({
+      createdPlayer = {
         id: socket.id,
         x: spawn.x,
         y: spawn.y,
         color: randomColor(),
-      });
+      };
+      await savePlayer(createdPlayer);
     }
 
     scheduleEmitPlayers();
+    emitPlayerJoined(createdPlayer);
   })().catch((error) => {
     stats.errorsTotal += 1;
     console.error("[connection] failed:", error);
@@ -535,9 +591,17 @@ io.on("connection", (socket) => {
     stats.movesReceived += 1;
 
     (async () => {
+      const seq = normalizeSeq(payload?.seq);
       const direction = payload?.direction;
       if (typeof direction !== "string" || !VALID_DIRECTIONS.has(direction)) {
         stats.movesRejectedInvalid += 1;
+        emitMoveAck(socket, seq, false, "invalid_direction");
+        return;
+      }
+
+      const player = await getPlayerById(socket.id);
+      if (!player) {
+        emitMoveAck(socket, seq, false, "missing_player");
         return;
       }
 
@@ -545,37 +609,39 @@ io.on("connection", (socket) => {
       const last = lastMoveAt.get(socket.id) || 0;
       if (now - last < MOVE_INTERVAL_MS) {
         stats.movesRejectedRateLimit += 1;
+        emitMoveAck(socket, seq, false, "rate_limited", player);
         return;
       }
       lastMoveAt.set(socket.id, now);
-
-      const player = await getPlayerById(socket.id);
-      if (!player) {
-        return;
-      }
 
       if (redisDataClient) {
         const moved = await movePlayerRedis(socket.id, direction);
         if (moved.state === "occupied") {
           stats.movesRejectedOccupied += 1;
+          emitMoveAck(socket, seq, false, "occupied", player);
           return;
         }
         if (moved.state !== "applied") {
+          emitMoveAck(socket, seq, false, "missing_player");
           return;
         }
-        scheduleEmitPlayers();
+        const updatedPlayer = moved.player || player;
+        emitPlayerMoved(updatedPlayer, seq);
+        emitMoveAck(socket, seq, true, null, updatedPlayer);
         stats.movesApplied += 1;
       } else {
         const next = getNextPosition(player, direction);
         if (await isOccupied(next.x, next.y, socket.id)) {
           stats.movesRejectedOccupied += 1;
+          emitMoveAck(socket, seq, false, "occupied", player);
           return;
         }
 
         player.x = next.x;
         player.y = next.y;
         await savePlayer(player);
-        scheduleEmitPlayers();
+        emitPlayerMoved(player, seq);
+        emitMoveAck(socket, seq, true, null, player);
         stats.movesApplied += 1;
       }
     })().catch((error) => {
@@ -588,9 +654,11 @@ io.on("connection", (socket) => {
     stats.disconnectionsTotal += 1;
 
     (async () => {
-      await removePlayer(socket.id);
-      lastMoveAt.delete(socket.id);
+      const disconnectedId = socket.id;
+      await removePlayer(disconnectedId);
+      lastMoveAt.delete(disconnectedId);
       scheduleEmitPlayers();
+      emitPlayerLeft(disconnectedId);
     })().catch((error) => {
       stats.errorsTotal += 1;
       console.error("[disconnect] failed:", error);
@@ -600,6 +668,15 @@ io.on("connection", (socket) => {
 
 async function start() {
   await connectRedisIfEnabled();
+
+  if (SNAPSHOT_INTERVAL_MS > 0) {
+    const snapshotTimer = setInterval(() => {
+      scheduleEmitPlayers();
+    }, SNAPSHOT_INTERVAL_MS);
+    if (typeof snapshotTimer.unref === "function") {
+      snapshotTimer.unref();
+    }
+  }
 
   server.listen(PORT, () => {
     console.log(`Server is running at http://localhost:${PORT}`);

@@ -32,6 +32,8 @@ ENABLE_REDIS=true
 REDIS_URL=redis://<REDIS_HOST>:6379
 REDIS_PLAYERS_KEY=game64x64:players
 REDIS_CELLS_KEY=game64x64:cells
+MOVE_INTERVAL_MS=16
+SNAPSHOT_INTERVAL_MS=250
 ```
 
 Chay PM2:
@@ -51,6 +53,7 @@ sudo systemctl reload nginx
 ```
 
 Luu y: doi IP `10.0.0.11` va `10.0.0.12` thanh IP Node that.
+Khuyen nghi giu `ip_hash` trong upstream de on dinh session khi fallback transport xay ra.
 
 ## 4) Verify nhanh
 - Truy cap: `http://<LB_IP>/health`

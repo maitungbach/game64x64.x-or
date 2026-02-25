@@ -1,0 +1,175 @@
+:root {
+  --bg-top: #f8fbff;
+  --bg-bottom: #e9f1ff;
+  --panel: #ffffff;
+  --text: #10213d;
+  --subtext: #48617f;
+  --line: #cfe0f8;
+  --primary: #1459c7;
+  --primary-hover: #0f47a0;
+  --danger: #b42318;
+  --success: #027a48;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at 15% 15%, var(--bg-top), var(--bg-bottom) 70%);
+}
+
+.auth-shell {
+  width: min(94vw, 520px);
+}
+
+.auth-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 18px 44px rgba(22, 57, 112, 0.15);
+}
+
+.back-link {
+  font-weight: 600;
+  color: #0f47a0;
+  text-decoration: none;
+}
+
+h1 {
+  margin: 12px 0 4px;
+  font-size: 1.45rem;
+}
+
+.subtitle {
+  margin: 0 0 14px;
+  color: var(--subtext);
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.tab {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f4f8ff;
+  color: #26476f;
+  padding: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tab.is-active {
+  color: #fff;
+  border-color: var(--primary);
+  background: linear-gradient(130deg, #1d63d4, #0f47a0);
+}
+
+.auth-form {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-form.is-hidden {
+  display: none;
+}
+
+label {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+input {
+  width: 100%;
+  border: 1px solid #bfd3f1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 1rem;
+  outline: none;
+  background: #fcfdff;
+}
+
+input:focus {
+  border-color: #79a5eb;
+  box-shadow: 0 0 0 3px rgba(21, 93, 202, 0.18);
+}
+
+.primary-btn {
+  margin-top: 6px;
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-weight: 700;
+  font-size: 0.96rem;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--primary), #0e4398);
+}
+
+.primary-btn:hover {
+  background: linear-gradient(135deg, var(--primary-hover), #0b387f);
+}
+
+.message {
+  min-height: 20px;
+  margin: 12px 0 2px;
+  font-weight: 600;
+}
+
+.message.error {
+  color: var(--danger);
+}
+
+.message.success {
+  color: var(--success);
+}
+
+.note {
+  margin: 6px 0 0;
+  font-size: 0.88rem;
+  color: #5f7593;
+}
+
+.test-accounts {
+  margin-top: 14px;
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+}
+
+.test-accounts h2 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+#seedList {
+  margin: 0;
+  padding-left: 18px;
+  color: #2b476a;
+}
+
+#seedList li {
+  margin: 4px 0;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 520px) {
+  .auth-panel {
+    border-radius: 12px;
+    padding: 14px;
+  }
+
+  h1 {
+    font-size: 1.25rem;
+  }
+}
