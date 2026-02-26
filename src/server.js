@@ -35,6 +35,9 @@ const AUTH_COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || "false") ===
 const AUTH_SESSION_TTL_SEC = Number(process.env.AUTH_SESSION_TTL_SEC || 86400);
 const AUTH_REJECT_CONCURRENT = String(process.env.AUTH_REJECT_CONCURRENT || "true") === "true";
 const AUTH_SEED_TEST_USERS = String(process.env.AUTH_SEED_TEST_USERS || "true") === "true";
+const AUTH_ALLOW_CONCURRENT_SEED_USERS = String(
+  process.env.AUTH_ALLOW_CONCURRENT_SEED_USERS || "true",
+) === "true";
 const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED || "true") === "true";
 const AUTH_DEFAULT_PASSWORD_MIN = 6;
 const AUTH_DEFAULT_NAME_MAX = 24;
@@ -55,6 +58,7 @@ const TEST_USERS_SEED = [
   { name: "Tester 04", email: "tester04@example.com", password: "Test123!" },
   { name: "Tester 05", email: "tester05@example.com", password: "Test123!" },
 ];
+const TEST_USERS_SEED_EMAILS = new Set(TEST_USERS_SEED.map((seed) => normalizeEmail(seed.email)));
 
 let redisPubClient = null;
 let redisSubClient = null;
@@ -381,7 +385,11 @@ async function refreshSession(session) {
 }
 
 async function createSessionForUser(user) {
-  const existingToken = await getUserSessionToken(user.id);
+  const allowConcurrentSeedSession = (
+    AUTH_ALLOW_CONCURRENT_SEED_USERS
+    && TEST_USERS_SEED_EMAILS.has(normalizeEmail(user?.email))
+  );
+  const existingToken = allowConcurrentSeedSession ? null : await getUserSessionToken(user.id);
   if (existingToken) {
     const existing = await getSessionByToken(existingToken);
     if (existing && AUTH_REJECT_CONCURRENT) {

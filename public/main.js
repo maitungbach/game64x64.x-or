@@ -17,9 +17,21 @@ const ACTIVE_SESSION_TTL_MS = 15_000;
 const LOCK_HEARTBEAT_MS = 4_000;
 const LOGIN_PATH = "/auth.html";
 const LOGIN_URL = `${LOGIN_PATH}?next=${encodeURIComponent("/game.html")}`;
+const AUTH_RETRY_DELAY_MS = 1200;
+const SEED_TEST_EMAILS = new Set([
+  "tester01@example.com",
+  "tester02@example.com",
+  "tester03@example.com",
+  "tester04@example.com",
+  "tester05@example.com",
+]);
 const socket = io({
   transports: ["websocket"],
   autoConnect: false,
+  reconnection: true,
+  reconnectionDelay: 600,
+  reconnectionDelayMax: 3000,
+  timeout: 6000,
 });
 
 canvas.width = CANVAS_SIZE;
@@ -42,6 +54,10 @@ gridCtx.imageSmoothingEnabled = false;
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function isSeedTestEmail(email) {
+  return SEED_TEST_EMAILS.has(normalizeEmail(email));
 }
 
 function getTabId() {
@@ -170,6 +186,9 @@ function ensureOwnedAccountLock(session) {
   }
 
   const email = normalizeEmail(session.email);
+  if (isSeedTestEmail(email)) {
+    return true;
+  }
   const locks = readActiveSessions();
   const lock = locks[email];
 
@@ -192,6 +211,9 @@ function releaseOwnedAccountLock(session) {
   }
 
   const email = normalizeEmail(session.email);
+  if (isSeedTestEmail(email)) {
+    return;
+  }
   const locks = readActiveSessions();
   const lock = locks[email];
   if (!lock) {
@@ -213,11 +235,20 @@ function stopLockHeartbeat() {
   lockHeartbeatTimer = null;
 }
 
-function handleSessionConflict(message) {
-  if (socket.connected) {
+function handleSessionConflict(message, options = {}) {
+  const shouldLogoutServer = options.logoutServer === true;
+  const shouldReleaseLock = options.releaseLock !== false;
+  const currentSession = readSession();
+
+  if (socket.connected || socket.active) {
     socket.disconnect();
   }
-  logoutFromServer();
+  if (shouldReleaseLock) {
+    releaseOwnedAccountLock(currentSession);
+  }
+  if (shouldLogoutServer) {
+    logoutFromServer();
+  }
   stopLockHeartbeat();
   playersById.clear();
   pendingInputs = [];
@@ -234,12 +265,17 @@ function startLockHeartbeat() {
   lockHeartbeatTimer = window.setInterval(() => {
     const session = readSession();
     if (!session) {
-      handleSessionConflict("Phien dang nhap da bi huy.");
+      handleSessionConflict("Phien dang nhap da bi huy.", {
+        logoutServer: false,
+        releaseLock: false,
+      });
       return;
     }
 
     if (!ensureOwnedAccountLock(session)) {
-      handleSessionConflict("Tai khoan dang duoc su dung o tab khac.");
+      handleSessionConflict("Tai khoan dang duoc su dung o tab khac.", {
+        logoutServer: false,
+      });
     }
   }, LOCK_HEARTBEAT_MS);
 }
@@ -598,12 +634,17 @@ window.addEventListener("storage", (event) => {
 
   const session = readSession();
   if (!session) {
-    handleSessionConflict("Phien dang nhap da bi thay doi.");
+    handleSessionConflict("Phien dang nhap da bi thay doi.", {
+      logoutServer: false,
+      releaseLock: false,
+    });
     return;
   }
 
   if (!ensureOwnedAccountLock(session)) {
-    handleSessionConflict("Tai khoan dang duoc su dung o tab khac.");
+    handleSessionConflict("Tai khoan dang duoc su dung o tab khac.", {
+      logoutServer: false,
+    });
   }
 });
 
@@ -647,8 +688,14 @@ socket.on("updatePlayers", applySnapshot);
 socket.on("playerMoved", applyMoveEvent);
 socket.on("playerJoined", applyJoinEvent);
 socket.on("playerLeft", applyLeftEvent);
-socket.on("connect_error", () => {
-  handleSessionConflict("Phien dang nhap khong hop le.");
+socket.on("connect_error", (error) => {
+  if (String(error?.message || "").toLowerCase() === "unauthorized") {
+    handleSessionConflict("Phien dang nhap khong hop le.", {
+      logoutServer: false,
+    });
+    return;
+  }
+  statusEl.textContent = "Ket noi tam thoi gian doan. He thong dang tu ket noi lai...";
 });
 
 async function bootstrapAuthAndConnect() {
@@ -673,7 +720,11 @@ async function bootstrapAuthAndConnect() {
     }
   } catch (_error) {
     statusEl.textContent = "Khong the xac thuc tai khoan. Dang thu lai...";
-    window.setTimeout(redirectToAuth, 500);
+    window.setTimeout(() => {
+      if (!redirectingToAuth) {
+        bootstrapAuthAndConnect();
+      }
+    }, AUTH_RETRY_DELAY_MS);
     return;
   }
 

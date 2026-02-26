@@ -93,6 +93,8 @@ async function run() {
       ENABLE_REDIS: "false",
       AUTH_REQUIRED: "true",
       AUTH_REJECT_CONCURRENT: "true",
+      AUTH_SEED_TEST_USERS: "true",
+      AUTH_ALLOW_CONCURRENT_SEED_USERS: "true",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -137,7 +139,21 @@ async function run() {
     const duplicateLoginRes = await requestJson("POST", "/api/auth/login", { email, password });
     assert.strictEqual(duplicateLoginRes.statusCode, 409, "Second login should be rejected by single-session policy");
 
-    console.log("PASS auth smoke: register/login/me/logout + single-session reject");
+    const seedEmail = "tester01@example.com";
+    const seedPassword = "Test123!";
+    const seedLogin1 = await requestJson("POST", "/api/auth/login", {
+      email: seedEmail,
+      password: seedPassword,
+    });
+    assert.strictEqual(seedLogin1.statusCode, 200, "Seed account first login should return 200");
+
+    const seedLogin2 = await requestJson("POST", "/api/auth/login", {
+      email: seedEmail,
+      password: seedPassword,
+    });
+    assert.strictEqual(seedLogin2.statusCode, 200, "Seed account should allow concurrent login");
+
+    console.log("PASS auth smoke: register/login/me/logout + single-session reject + seed concurrent");
   } finally {
     server.kill();
     await delay(250);

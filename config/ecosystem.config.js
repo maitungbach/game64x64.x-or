@@ -20,6 +20,7 @@
         AUTH_SESSION_TTL_SEC: "86400",
         AUTH_REJECT_CONCURRENT: "true",
         AUTH_SEED_TEST_USERS: "true",
+        AUTH_ALLOW_CONCURRENT_SEED_USERS: "true",
       },
       max_memory_restart: "300M",
       out_file: "./logs/out.log",

@@ -9,6 +9,7 @@ const TEST_USERS_SEED = [
   { name: "Tester 04", email: "tester04@example.com", password: "Test123!" },
   { name: "Tester 05", email: "tester05@example.com", password: "Test123!" },
 ];
+const SEED_TEST_EMAILS = new Set(TEST_USERS_SEED.map((seed) => normalizeEmail(seed.email)));
 
 const tabLoginEl = document.getElementById("tabLogin");
 const tabRegisterEl = document.getElementById("tabRegister");
@@ -19,6 +20,10 @@ const seedListEl = document.getElementById("seedList");
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function isSeedTestEmail(email) {
+  return SEED_TEST_EMAILS.has(normalizeEmail(email));
 }
 
 function mapLegacySeedEmail(email) {
@@ -97,6 +102,9 @@ function writeActiveSessions(locks) {
 
 function claimAccountLock(email, sessionToken) {
   const normalizedEmail = normalizeEmail(email);
+  if (isSeedTestEmail(normalizedEmail)) {
+    return;
+  }
   const locks = readActiveSessions();
   locks[normalizedEmail] = {
     tabId: TAB_ID,
@@ -108,6 +116,9 @@ function claimAccountLock(email, sessionToken) {
 
 function isLockedByAnotherTab(email) {
   const normalizedEmail = normalizeEmail(email);
+  if (isSeedTestEmail(normalizedEmail)) {
+    return false;
+  }
   const lock = readActiveSessions()[normalizedEmail];
   if (!lock) {
     return false;
@@ -120,6 +131,9 @@ function releaseOwnedAccountLock(session) {
     return;
   }
   const normalizedEmail = normalizeEmail(session.email);
+  if (isSeedTestEmail(normalizedEmail)) {
+    return;
+  }
   const locks = readActiveSessions();
   const lock = locks[normalizedEmail];
   if (!lock) {
