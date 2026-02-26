@@ -38,6 +38,7 @@ const AUTH_SEED_TEST_USERS = String(process.env.AUTH_SEED_TEST_USERS || "true") 
 const AUTH_ALLOW_CONCURRENT_SEED_USERS = String(
   process.env.AUTH_ALLOW_CONCURRENT_SEED_USERS || "true",
 ) === "true";
+const AUTH_CONCURRENT_STALE_SEC = Number(process.env.AUTH_CONCURRENT_STALE_SEC || 45);
 const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED || "true") === "true";
 const AUTH_DEFAULT_PASSWORD_MIN = 6;
 const AUTH_DEFAULT_NAME_MAX = 24;
@@ -392,10 +393,20 @@ async function createSessionForUser(user) {
   const existingToken = allowConcurrentSeedSession ? null : await getUserSessionToken(user.id);
   if (existingToken) {
     const existing = await getSessionByToken(existingToken);
-    if (existing && AUTH_REJECT_CONCURRENT) {
-      return { ok: false, reason: "already_online" };
-    }
     if (existing) {
+      if (AUTH_REJECT_CONCURRENT) {
+        const staleThresholdMs = AUTH_CONCURRENT_STALE_SEC > 0
+          ? AUTH_CONCURRENT_STALE_SEC * 1000
+          : 0;
+        const lastSeenAt = Number(existing.lastSeenAt || existing.createdAt || 0);
+        const isStale = staleThresholdMs > 0
+          && Number.isFinite(lastSeenAt)
+          && (Date.now() - lastSeenAt) > staleThresholdMs;
+
+        if (!isStale) {
+          return { ok: false, reason: "already_online" };
+        }
+      }
       await deleteSession(existingToken, existing);
     }
   }

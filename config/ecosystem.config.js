@@ -19,6 +19,7 @@
         AUTH_COOKIE_SECURE: "false",
         AUTH_SESSION_TTL_SEC: "86400",
         AUTH_REJECT_CONCURRENT: "true",
+        AUTH_CONCURRENT_STALE_SEC: "45",
         AUTH_SEED_TEST_USERS: "true",
         AUTH_ALLOW_CONCURRENT_SEED_USERS: "true",
       },

@@ -93,6 +93,7 @@ async function run() {
       ENABLE_REDIS: "false",
       AUTH_REQUIRED: "true",
       AUTH_REJECT_CONCURRENT: "true",
+      AUTH_CONCURRENT_STALE_SEC: "1",
       AUTH_SEED_TEST_USERS: "true",
       AUTH_ALLOW_CONCURRENT_SEED_USERS: "true",
     },
@@ -138,6 +139,10 @@ async function run() {
 
     const duplicateLoginRes = await requestJson("POST", "/api/auth/login", { email, password });
     assert.strictEqual(duplicateLoginRes.statusCode, 409, "Second login should be rejected by single-session policy");
+
+    await delay(1200);
+    const staleTakeoverLoginRes = await requestJson("POST", "/api/auth/login", { email, password });
+    assert.strictEqual(staleTakeoverLoginRes.statusCode, 200, "Stale session should be replaced after threshold");
 
     const seedEmail = "tester01@example.com";
     const seedPassword = "Test123!";
