@@ -906,6 +906,15 @@ async function getAuthenticatedUserFromRequest(req) {
 }
 
 app.use(express.json({ limit: "32kb" }));
+app.use((req, res, next) => {
+  const route = String(req.path || "").toLowerCase();
+  if (route.endsWith(".html") || route === "/" || route === "/auth" || route === "/game") {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+  }
+  next();
+});
 app.use(express.static(PUBLIC_DIR));
 
 app.post("/api/auth/register", async (req, res) => {

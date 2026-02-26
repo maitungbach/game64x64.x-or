@@ -180,6 +180,20 @@ function writeActiveSessions(locks) {
   localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(locks));
 }
 
+function clearSeedAccountLocks() {
+  const locks = readActiveSessions();
+  let changed = false;
+  for (const email of SEED_TEST_EMAILS) {
+    if (locks[email]) {
+      delete locks[email];
+      changed = true;
+    }
+  }
+  if (changed) {
+    writeActiveSessions(locks);
+  }
+}
+
 function ensureOwnedAccountLock(session) {
   if (!session) {
     return false;
@@ -734,5 +748,6 @@ async function bootstrapAuthAndConnect() {
 
 drawGridLayer();
 renderAccountBar();
+clearSeedAccountLocks();
 renderFrame();
 bootstrapAuthAndConnect();
