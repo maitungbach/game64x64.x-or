@@ -915,6 +915,12 @@ app.use((req, res, next) => {
   }
   next();
 });
+app.get("/", (_req, res) => {
+  res.redirect(302, "/auth.html");
+});
+app.get("/index.html", (_req, res) => {
+  res.redirect(302, "/auth.html");
+});
 app.use(express.static(PUBLIC_DIR));
 
 app.post("/api/auth/register", async (req, res) => {

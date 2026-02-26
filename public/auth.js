@@ -393,7 +393,7 @@ async function bootstrapExistingLogin() {
   }
 
   setClientSession(result.data.user);
-  redirectToGame(0);
+  setMessage("Ban da dang nhap. Neu muon vao game, bam 'Vao game'.", "success");
 }
 
 tabLoginEl.addEventListener("click", () => setMode("login"));
