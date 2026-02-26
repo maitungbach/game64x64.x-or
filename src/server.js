@@ -38,7 +38,6 @@ const AUTH_SEED_TEST_USERS = String(process.env.AUTH_SEED_TEST_USERS || "true") 
 const AUTH_ALLOW_CONCURRENT_SEED_USERS = String(
   process.env.AUTH_ALLOW_CONCURRENT_SEED_USERS || "true",
 ) === "true";
-const AUTH_CONCURRENT_STALE_SEC = Number(process.env.AUTH_CONCURRENT_STALE_SEC || 45);
 const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED || "true") === "true";
 const AUTH_DEFAULT_PASSWORD_MIN = 6;
 const AUTH_DEFAULT_NAME_MAX = 24;
@@ -385,7 +384,8 @@ async function refreshSession(session) {
   return next;
 }
 
-async function createSessionForUser(user) {
+async function createSessionForUser(user, options = {}) {
+  const forceExistingSession = options.forceExistingSession === true;
   const allowConcurrentSeedSession = (
     AUTH_ALLOW_CONCURRENT_SEED_USERS
     && TEST_USERS_SEED_EMAILS.has(normalizeEmail(user?.email))
@@ -394,18 +394,8 @@ async function createSessionForUser(user) {
   if (existingToken) {
     const existing = await getSessionByToken(existingToken);
     if (existing) {
-      if (AUTH_REJECT_CONCURRENT) {
-        const staleThresholdMs = AUTH_CONCURRENT_STALE_SEC > 0
-          ? AUTH_CONCURRENT_STALE_SEC * 1000
-          : 0;
-        const lastSeenAt = Number(existing.lastSeenAt || existing.createdAt || 0);
-        const isStale = staleThresholdMs > 0
-          && Number.isFinite(lastSeenAt)
-          && (Date.now() - lastSeenAt) > staleThresholdMs;
-
-        if (!isStale) {
-          return { ok: false, reason: "already_online" };
-        }
+      if (AUTH_REJECT_CONCURRENT && !forceExistingSession) {
+        return { ok: false, reason: "already_online" };
       }
       await deleteSession(existingToken, existing);
     }
@@ -961,6 +951,7 @@ app.post("/api/auth/register", async (req, res) => {
 app.post("/api/auth/login", async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const password = String(req.body?.password || "");
+  const forceFromClient = req.body?.force === true;
   if (!isValidEmail(email) || !password) {
     res.status(400).json({ ok: false, message: "Invalid login payload" });
     return;
@@ -972,7 +963,8 @@ app.post("/api/auth/login", async (req, res) => {
     return;
   }
 
-  const created = await createSessionForUser(user);
+  const forceExistingSession = forceFromClient || TEST_USERS_SEED_EMAILS.has(email);
+  const created = await createSessionForUser(user, { forceExistingSession });
   if (!created.ok) {
     res.status(409).json({ ok: false, message: created.reason });
     return;
