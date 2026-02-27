@@ -665,6 +665,9 @@ window.addEventListener("storage", (event) => {
 window.addEventListener("beforeunload", () => {
   const session = readSession();
   releaseOwnedAccountLock(session);
+  if (socket.connected || socket.active) {
+    socket.disconnect();
+  }
 });
 
 socket.on("connect", () => {

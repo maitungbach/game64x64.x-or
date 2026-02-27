@@ -2,6 +2,7 @@ const { spawn } = require("child_process");
 const http = require("http");
 const path = require("path");
 const assert = require("assert");
+const { io } = require("socket.io-client");
 
 const TEST_PORT = 3104;
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
@@ -85,6 +86,31 @@ function extractCookie(setCookieHeaders) {
   return String(first).split(";")[0];
 }
 
+function connectAuthedSocket(cookie) {
+  return io(BASE_URL, {
+    transports: ["websocket"],
+    reconnection: false,
+    timeout: 4000,
+    extraHeaders: {
+      Cookie: cookie,
+    },
+  });
+}
+
+function waitForSocketConnect(socket) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Socket connect timeout")), 4000);
+    socket.once("connect", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    socket.once("connect_error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
 async function run() {
   const server = spawn(process.execPath, [SERVER_PATH], {
     env: {
@@ -95,6 +121,7 @@ async function run() {
       AUTH_REJECT_CONCURRENT: "true",
       AUTH_SEED_TEST_USERS: "true",
       AUTH_ALLOW_CONCURRENT_SEED_USERS: "true",
+      AUTH_RELEASE_DELAY_MS: "200",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -109,6 +136,8 @@ async function run() {
   server.stderr.on("data", (chunk) => {
     stderr += chunk.toString();
   });
+
+  let activeSocket = null;
 
   try {
     await waitForHealth();
@@ -135,9 +164,19 @@ async function run() {
 
     const loginRes = await requestJson("POST", "/api/auth/login", { email, password });
     assert.strictEqual(loginRes.statusCode, 200, "Login should return 200");
+    const loginCookie = extractCookie(loginRes.setCookie);
+    activeSocket = connectAuthedSocket(loginCookie);
+    await waitForSocketConnect(activeSocket);
 
     const duplicateLoginRes = await requestJson("POST", "/api/auth/login", { email, password });
-    assert.strictEqual(duplicateLoginRes.statusCode, 409, "Second login should be rejected by single-session policy");
+    assert.strictEqual(duplicateLoginRes.statusCode, 409, "Second login should be rejected while socket is online");
+
+    activeSocket.disconnect();
+    activeSocket = null;
+    await delay(350);
+
+    const reloginAfterCloseRes = await requestJson("POST", "/api/auth/login", { email, password });
+    assert.strictEqual(reloginAfterCloseRes.statusCode, 200, "Login should recover after socket disconnect");
 
     const forceTakeoverLoginRes = await requestJson("POST", "/api/auth/login", {
       email,
@@ -162,6 +201,9 @@ async function run() {
 
     console.log("PASS auth smoke: register/login/me/logout + single-session reject + seed concurrent");
   } finally {
+    if (activeSocket) {
+      activeSocket.disconnect();
+    }
     server.kill();
     await delay(250);
 

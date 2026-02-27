@@ -10,6 +10,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   transports: ["websocket"],
+  pingInterval: Number(process.env.SOCKET_PING_INTERVAL_MS || 10000),
+  pingTimeout: Number(process.env.SOCKET_PING_TIMEOUT_MS || 5000),
 });
 
 const PORT = Number(process.env.PORT || 3000);
@@ -20,6 +22,8 @@ const MAX_SPAWN_ATTEMPTS = 500;
 const MOVE_INTERVAL_MS = Number(process.env.MOVE_INTERVAL_MS || 16);
 const BROADCAST_INTERVAL_MS = Number(process.env.BROADCAST_INTERVAL_MS || 33);
 const SNAPSHOT_INTERVAL_MS = Number(process.env.SNAPSHOT_INTERVAL_MS || 250);
+const GHOST_SWEEP_INTERVAL_MS = Number(process.env.GHOST_SWEEP_INTERVAL_MS || 15000);
+const AUTH_RELEASE_DELAY_MS = Number(process.env.AUTH_RELEASE_DELAY_MS || 12000);
 
 const ENABLE_REDIS = String(process.env.ENABLE_REDIS || "false") === "true";
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
@@ -50,6 +54,7 @@ const usersByEmail = new Map();
 const usersById = new Map();
 const sessionsByToken = new Map();
 const userSessionTokenByUserId = new Map();
+const pendingSessionReleaseTimers = new Map();
 
 const TEST_USERS_SEED = [
   { name: "Tester 01", email: "tester01@example.com", password: "Test123!" },
@@ -384,6 +389,76 @@ async function refreshSession(session) {
   return next;
 }
 
+async function hasActiveSocketForUser(userId) {
+  if (!AUTH_REQUIRED || !userId) {
+    return false;
+  }
+
+  const sockets = await io.fetchSockets();
+  return sockets.some((socket) => socket?.data?.auth?.userId === userId);
+}
+
+function clearPendingSessionRelease(userId) {
+  if (!userId) {
+    return;
+  }
+  const timer = pendingSessionReleaseTimers.get(userId);
+  if (timer) {
+    clearTimeout(timer);
+    pendingSessionReleaseTimers.delete(userId);
+  }
+}
+
+async function releaseSessionIfOffline(userId, token) {
+  if (!AUTH_REQUIRED || !userId || !token) {
+    return;
+  }
+
+  const sockets = await io.fetchSockets();
+  const stillOnline = sockets.some((socket) => socket?.data?.auth?.userId === userId);
+  if (stillOnline) {
+    return;
+  }
+
+  const session = await getSessionByToken(token);
+  if (!session || session.userId !== userId) {
+    return;
+  }
+
+  await deleteSession(token, session);
+  console.log(`[auth] Released idle session for user=${userId} after disconnect.`);
+}
+
+function scheduleSessionRelease(userId, token) {
+  if (!AUTH_REQUIRED || !userId || !token) {
+    return;
+  }
+
+  clearPendingSessionRelease(userId);
+
+  const run = async () => {
+    try {
+      await releaseSessionIfOffline(userId, token);
+    } catch (error) {
+      stats.errorsTotal += 1;
+      console.error("[auth-release] failed:", error);
+    } finally {
+      pendingSessionReleaseTimers.delete(userId);
+    }
+  };
+
+  if (AUTH_RELEASE_DELAY_MS <= 0) {
+    run();
+    return;
+  }
+
+  const timer = setTimeout(run, AUTH_RELEASE_DELAY_MS);
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
+  pendingSessionReleaseTimers.set(userId, timer);
+}
+
 async function createSessionForUser(user, options = {}) {
   const forceExistingSession = options.forceExistingSession === true;
   const allowConcurrentSeedSession = (
@@ -395,7 +470,10 @@ async function createSessionForUser(user, options = {}) {
     const existing = await getSessionByToken(existingToken);
     if (existing) {
       if (AUTH_REJECT_CONCURRENT && !forceExistingSession) {
-        return { ok: false, reason: "already_online" };
+        const active = await hasActiveSocketForUser(existing.userId);
+        if (active) {
+          return { ok: false, reason: "already_online" };
+        }
       }
       await deleteSession(existingToken, existing);
     }
@@ -608,6 +686,37 @@ async function rebuildRedisCellsIndex() {
   }
 
   await tx.exec();
+}
+
+async function sweepGhostPlayers() {
+  if (!redisDataClient) {
+    return;
+  }
+
+  try {
+    const sockets = await io.fetchSockets();
+    const activeSocketIds = new Set(sockets.map((socket) => socket.id));
+    const list = await getPlayersList();
+    let removed = 0;
+
+    for (const player of list) {
+      if (!activeSocketIds.has(player.id)) {
+        // eslint-disable-next-line no-await-in-loop
+        await removePlayer(player.id);
+        lastMoveAt.delete(player.id);
+        emitPlayerLeft(player.id);
+        removed += 1;
+      }
+    }
+
+    if (removed > 0) {
+      console.log(`[reconcile] Removed ${removed} stale players from Redis.`);
+      scheduleEmitPlayers();
+    }
+  } catch (error) {
+    stats.errorsTotal += 1;
+    console.error("[reconcile] failed:", error);
+  }
 }
 
 async function spawnPlayerRedis(playerId) {
@@ -1076,6 +1185,8 @@ if (AUTH_REQUIRED) {
         email: user.email,
         name: user.name,
       };
+      socket.data.authToken = token;
+      clearPendingSessionRelease(user.id);
       next();
     })().catch((error) => {
       console.error("[socket-auth] failed:", error);
@@ -1189,8 +1300,11 @@ io.on("connection", (socket) => {
 
     (async () => {
       const disconnectedId = socket.id;
+      const userId = socket?.data?.auth?.userId || null;
+      const authToken = socket?.data?.authToken || null;
       await removePlayer(disconnectedId);
       lastMoveAt.delete(disconnectedId);
+      scheduleSessionRelease(userId, authToken);
       scheduleEmitPlayers();
       emitPlayerLeft(disconnectedId);
     })().catch((error) => {
@@ -1204,6 +1318,15 @@ async function start() {
   await connectRedisIfEnabled();
   await ensureSeedUsers();
 
+  if (ENABLE_REDIS && GHOST_SWEEP_INTERVAL_MS > 0) {
+    const sweepTimer = setInterval(() => {
+      sweepGhostPlayers();
+    }, GHOST_SWEEP_INTERVAL_MS);
+    if (typeof sweepTimer.unref === "function") {
+      sweepTimer.unref();
+    }
+  }
+
   if (SNAPSHOT_INTERVAL_MS > 0) {
     const snapshotTimer = setInterval(() => {
       scheduleEmitPlayers();
@@ -1215,6 +1338,9 @@ async function start() {
 
   server.listen(PORT, () => {
     console.log(`Server is running at http://localhost:${PORT}`);
+    if (ENABLE_REDIS) {
+      sweepGhostPlayers();
+    }
   });
 }
 

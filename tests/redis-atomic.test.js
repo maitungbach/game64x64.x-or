@@ -42,9 +42,17 @@ function connectClient() {
 
 async function main() {
   const redis = createClient({ url: REDIS_URL });
+  const ghostPlayer = {
+    id: "ghost-player",
+    x: 0,
+    y: 0,
+    color: "#123456",
+  };
   try {
     await redis.connect();
     await redis.ping();
+    await redis.hSet(REDIS_PLAYERS_KEY, ghostPlayer.id, JSON.stringify(ghostPlayer));
+    await redis.hSet(REDIS_CELLS_KEY, `${ghostPlayer.x}:${ghostPlayer.y}`, ghostPlayer.id);
   } catch (_error) {
     console.log("SKIP redis atomic: Redis is not available on", REDIS_URL);
     process.exit(0);
@@ -65,6 +73,7 @@ async function main() {
       REDIS_URL,
       REDIS_PLAYERS_KEY,
       REDIS_CELLS_KEY,
+      GHOST_SWEEP_INTERVAL_MS: "200",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -83,6 +92,7 @@ async function main() {
 
   try {
     await waitForServerReady();
+    await delay(500);
 
     for (let i = 0; i < 30; i += 1) {
       const socket = connectClient();
@@ -117,11 +127,13 @@ async function main() {
 
     const verifyRedis = createClient({ url: REDIS_URL });
     await verifyRedis.connect();
+    const ghostRaw = await verifyRedis.hGet(REDIS_PLAYERS_KEY, ghostPlayer.id);
     const playersCount = await verifyRedis.hLen(REDIS_PLAYERS_KEY);
     const cellsCount = await verifyRedis.hLen(REDIS_CELLS_KEY);
     await verifyRedis.del(REDIS_PLAYERS_KEY, REDIS_CELLS_KEY);
     await verifyRedis.disconnect();
 
+    assert.strictEqual(ghostRaw, null, "Expected stale ghost player to be swept");
     assert.strictEqual(playersCount, cellsCount, "Redis players/cells index mismatch");
     console.log("PASS redis atomic: no duplicate occupancy + consistent redis indexes");
   } finally {
