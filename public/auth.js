@@ -3,11 +3,11 @@ const ACTIVE_SESSIONS_KEY = "game64x64:active_sessions";
 const TAB_ID_KEY = "game64x64:tab_id";
 const ACTIVE_SESSION_TTL_MS = 15_000;
 const TEST_USERS_SEED = [
-  { name: "Tester 01", email: "tester01@example.com", password: "Test123!" },
-  { name: "Tester 02", email: "tester02@example.com", password: "Test123!" },
-  { name: "Tester 03", email: "tester03@example.com", password: "Test123!" },
-  { name: "Tester 04", email: "tester04@example.com", password: "Test123!" },
-  { name: "Tester 05", email: "tester05@example.com", password: "Test123!" },
+  { name: "Tài khoản kiểm thử 01", email: "tester01@example.com", password: "Test123!" },
+  { name: "Tài khoản kiểm thử 02", email: "tester02@example.com", password: "Test123!" },
+  { name: "Tài khoản kiểm thử 03", email: "tester03@example.com", password: "Test123!" },
+  { name: "Tài khoản kiểm thử 04", email: "tester04@example.com", password: "Test123!" },
+  { name: "Tài khoản kiểm thử 05", email: "tester05@example.com", password: "Test123!" },
 ];
 const SEED_TEST_EMAILS = new Set(TEST_USERS_SEED.map((seed) => normalizeEmail(seed.email)));
 
@@ -272,15 +272,15 @@ async function handleLogin(event) {
   const password = String(formData.get("password") || "");
 
   if (!isValidEmail(email)) {
-    setMessage("Email khong hop le.", "error");
+    setMessage("Email không hợp lệ.", "error");
     return;
   }
   if (!password) {
-    setMessage("Vui long nhap mat khau.", "error");
+    setMessage("Vui lòng nhập mật khẩu.", "error");
     return;
   }
   if (isLockedByAnotherTab(email)) {
-    setMessage("Tai khoan nay dang dang nhap o tab khac.", "error");
+    setMessage("Tài khoản này đang đăng nhập ở tab khác.", "error");
     return;
   }
 
@@ -288,7 +288,7 @@ async function handleLogin(event) {
   try {
     result = await callApi("/api/auth/login", { email, password });
   } catch (_error) {
-    setMessage("Khong ket noi duoc may chu.", "error");
+    setMessage("Không kết nối được máy chủ.", "error");
     return;
   }
 
@@ -298,27 +298,27 @@ async function handleLogin(event) {
         try {
           result = await callApi("/api/auth/login", { email, password, force: true });
         } catch (_error) {
-          setMessage("Khong ket noi duoc may chu.", "error");
+          setMessage("Không kết nối được máy chủ.", "error");
           return;
         }
         if (result.ok) {
           const user = result.data?.user || { email, name: email };
           setClientSession(user);
-          setMessage("Dang nhap thanh cong. Dang chuyen ve trang game...", "success");
+          setMessage("Đăng nhập thành công. Đang chuyển về trang game...", "success");
           redirectToGame();
           return;
         }
       }
-      setMessage("Tai khoan nay dang online o noi khac.", "error");
+      setMessage("Tài khoản này đang online ở nơi khác.", "error");
       return;
     }
-    setMessage("Sai email hoac mat khau.", "error");
+    setMessage("Sai email hoặc mật khẩu.", "error");
     return;
   }
 
   const user = result.data?.user || { email, name: email };
   setClientSession(user);
-  setMessage("Dang nhap thanh cong. Dang chuyen ve trang game...", "success");
+  setMessage("Đăng nhập thành công. Đang chuyển về trang game...", "success");
   redirectToGame();
 }
 
@@ -331,23 +331,23 @@ async function handleRegister(event) {
   const confirmPassword = String(formData.get("confirmPassword") || "");
 
   if (name.length < 2) {
-    setMessage("Ten hien thi phai co it nhat 2 ky tu.", "error");
+    setMessage("Tên hiển thị phải có ít nhất 2 ký tự.", "error");
     return;
   }
   if (!isValidEmail(email)) {
-    setMessage("Email khong hop le.", "error");
+    setMessage("Email không hợp lệ.", "error");
     return;
   }
   if (password.length < 6) {
-    setMessage("Mat khau phai co it nhat 6 ky tu.", "error");
+    setMessage("Mật khẩu phải có ít nhất 6 ký tự.", "error");
     return;
   }
   if (password !== confirmPassword) {
-    setMessage("Mat khau nhap lai khong khop.", "error");
+    setMessage("Mật khẩu nhập lại không khớp.", "error");
     return;
   }
   if (isLockedByAnotherTab(email)) {
-    setMessage("Tai khoan nay dang dang nhap o tab khac.", "error");
+    setMessage("Tài khoản này đang đăng nhập ở tab khác.", "error");
     return;
   }
 
@@ -355,22 +355,22 @@ async function handleRegister(event) {
   try {
     result = await callApi("/api/auth/register", { name, email, password });
   } catch (_error) {
-    setMessage("Khong ket noi duoc may chu.", "error");
+    setMessage("Không kết nối được máy chủ.", "error");
     return;
   }
 
   if (!result.ok) {
     if (result.status === 409) {
-      setMessage("Email da ton tai hoac dang online.", "error");
+      setMessage("Email đã tồn tại hoặc đang online.", "error");
       return;
     }
-    setMessage("Khong tao duoc tai khoan.", "error");
+    setMessage("Không tạo được tài khoản.", "error");
     return;
   }
 
   const user = result.data?.user || { email, name };
   setClientSession(user);
-  setMessage("Tao tai khoan thanh cong. Dang chuyen ve trang game...", "success");
+  setMessage("Tạo tài khoản thành công. Đang chuyển về trang game...", "success");
   redirectToGame();
 }
 
@@ -388,12 +388,12 @@ async function bootstrapExistingLogin() {
   }
 
   if (isLockedByAnotherTab(result.data.user.email)) {
-    setMessage("Tai khoan nay dang dang nhap o tab khac.", "error");
+    setMessage("Tài khoản này đang đăng nhập ở tab khác.", "error");
     return;
   }
 
   setClientSession(result.data.user);
-  setMessage("Ban da dang nhap. Neu muon vao game, bam 'Vao game'.", "success");
+  setMessage("Bạn đã đăng nhập. Nếu muốn vào game, bấm 'Vào game'.", "success");
 }
 
 tabLoginEl.addEventListener("click", () => setMode("login"));

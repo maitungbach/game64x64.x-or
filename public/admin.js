@@ -67,7 +67,7 @@ async function refresh() {
     renderCounters(stats.data.counters);
     setText(el.error, "-");
   } else {
-    setText(el.error, `Stats error ${stats.status}. Kiem tra token.`);
+    setText(el.error, `Lỗi thống kê ${stats.status}. Kiểm tra token.`);
   }
 
   setText(el.lastUpdate, new Date().toLocaleString());
@@ -76,9 +76,9 @@ async function refresh() {
 el.applyToken.addEventListener("click", () => {
   state.token = el.token.value.trim();
   if (state.token) {
-    setText(el.authStatus, "Dang su dung /stats voi token.");
+    setText(el.authStatus, "Đang dùng /stats với token.");
   } else {
-    setText(el.authStatus, "Dang su dung /stats khong token.");
+    setText(el.authStatus, "Đang dùng /stats không token.");
   }
   refresh();
 });

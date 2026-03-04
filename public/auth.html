@@ -3,52 +3,52 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dang nhap / Dang ky - Game 64x64</title>
+  <title>Đăng nhập / Đăng ký - Game 64x64</title>
   <link rel="stylesheet" href="auth.css?v=20260226-7" />
 </head>
 <body>
   <main class="auth-shell">
     <section class="auth-panel">
-      <a class="back-link" href="/game.html">Vao game</a>
-      <h1>Tai khoan Game 64x64</h1>
-      <p class="subtitle">Dang nhap hoac tao tai khoan de luu ten nguoi choi tren trinh duyet nay.</p>
+      <a class="back-link" href="/game.html">Vào game</a>
+      <h1>Tài khoản Game 64x64</h1>
+      <p class="subtitle">Đăng nhập hoặc tạo tài khoản để lưu tên người chơi trên trình duyệt này.</p>
 
-      <div class="auth-tabs" role="tablist" aria-label="Che do xac thuc">
-        <button id="tabLogin" type="button" class="tab is-active" data-mode="login">Dang nhap</button>
-        <button id="tabRegister" type="button" class="tab" data-mode="register">Dang ky</button>
+      <div class="auth-tabs" role="tablist" aria-label="Chế độ xác thực">
+        <button id="tabLogin" type="button" class="tab is-active" data-mode="login">Đăng nhập</button>
+        <button id="tabRegister" type="button" class="tab" data-mode="register">Đăng ký</button>
       </div>
 
       <form id="loginForm" class="auth-form">
         <label for="loginEmail">Email</label>
         <input id="loginEmail" name="email" type="email" autocomplete="email" required />
 
-        <label for="loginPassword">Mat khau</label>
+        <label for="loginPassword">Mật khẩu</label>
         <input id="loginPassword" name="password" type="password" autocomplete="current-password" required />
 
-        <button type="submit" class="primary-btn">Dang nhap va vao game</button>
+        <button type="submit" class="primary-btn">Đăng nhập và vào game</button>
       </form>
 
       <form id="registerForm" class="auth-form is-hidden" novalidate>
-        <label for="registerName">Ten hien thi</label>
+        <label for="registerName">Tên hiển thị</label>
         <input id="registerName" name="name" type="text" minlength="2" maxlength="24" required />
 
         <label for="registerEmail">Email</label>
         <input id="registerEmail" name="email" type="email" autocomplete="email" required />
 
-        <label for="registerPassword">Mat khau</label>
+        <label for="registerPassword">Mật khẩu</label>
         <input id="registerPassword" name="password" type="password" minlength="6" autocomplete="new-password" required />
 
-        <label for="registerConfirm">Nhap lai mat khau</label>
+        <label for="registerConfirm">Nhập lại mật khẩu</label>
         <input id="registerConfirm" name="confirmPassword" type="password" minlength="6" autocomplete="new-password" required />
 
-        <button type="submit" class="primary-btn">Tao tai khoan</button>
+        <button type="submit" class="primary-btn">Tạo tài khoản</button>
       </form>
 
       <p id="authMessage" class="message" aria-live="polite"></p>
-      <p class="note">Dang nhap duoc xu ly boi backend. Tai khoan thuong gioi han 1 phien, rieng 5 tai khoan test co the dang nhap song song.</p>
+      <p class="note">Đăng nhập được xử lý bởi máy chủ. Tài khoản thường giới hạn 1 phiên, riêng 5 tài khoản kiểm thử có thể đăng nhập song song.</p>
 
-      <section class="test-accounts" aria-label="Tai khoan mau">
-        <h2>5 tai khoan test</h2>
+      <section class="test-accounts" aria-label="Tài khoản mẫu">
+        <h2>5 tài khoản kiểm thử</h2>
         <ul id="seedList"></ul>
       </section>
     </section>

@@ -269,7 +269,7 @@ function handleSessionConflict(message, options = {}) {
   myServerPos = null;
   myId = null;
   sessionStorage.removeItem(SESSION_KEY);
-  statusEl.textContent = message || "Phien dang nhap khong hop le. Dang chuyen huong...";
+  statusEl.textContent = message || "Phiên đăng nhập không hợp lệ. Đang chuyển hướng...";
   renderAccountBar();
   window.setTimeout(redirectToAuth, 150);
 }
@@ -279,7 +279,7 @@ function startLockHeartbeat() {
   lockHeartbeatTimer = window.setInterval(() => {
     const session = readSession();
     if (!session) {
-      handleSessionConflict("Phien dang nhap da bi huy.", {
+      handleSessionConflict("Phiên đăng nhập đã bị hủy.", {
         logoutServer: false,
         releaseLock: false,
       });
@@ -287,7 +287,7 @@ function startLockHeartbeat() {
     }
 
     if (!ensureOwnedAccountLock(session)) {
-      handleSessionConflict("Tai khoan dang duoc su dung o tab khac.", {
+      handleSessionConflict("Tài khoản đang được sử dụng ở tab khác.", {
         logoutServer: false,
       });
     }
@@ -301,15 +301,15 @@ function renderAccountBar() {
 
   const session = readSession();
   if (!session) {
-    accountNameEl.textContent = "Chua dang nhap";
-    authActionEl.textContent = "Dang nhap / Dang ky";
+    accountNameEl.textContent = "Chưa đăng nhập";
+    authActionEl.textContent = "Đăng nhập / Đăng ký";
     authActionEl.href = LOGIN_URL;
     authActionEl.onclick = null;
     return;
   }
 
-  accountNameEl.textContent = `Xin chao, ${session.name || session.email}`;
-  authActionEl.textContent = "Dang xuat";
+  accountNameEl.textContent = `Xin chào, ${session.name || session.email}`;
+  authActionEl.textContent = "Đăng xuất";
   authActionEl.href = "#";
   authActionEl.onclick = async (event) => {
     event.preventDefault();
@@ -324,7 +324,7 @@ function renderAccountBar() {
     pendingInputs = [];
     myServerPos = null;
     myId = null;
-    statusEl.textContent = "Da dang xuat. Dang chuyen den trang dang nhap...";
+    statusEl.textContent = "Đã đăng xuất. Đang chuyển đến trang đăng nhập...";
     renderAccountBar();
     redirectToAuth();
   };
@@ -586,18 +586,18 @@ function drawPlayersFrame() {
 
 function updateStatusText() {
   if (!readSession()) {
-    statusEl.textContent = "Ban can dang nhap de choi.";
+    statusEl.textContent = "Bạn cần đăng nhập để chơi.";
     return;
   }
 
   const me = myId ? playersById.get(myId) : null;
   const total = playersById.size;
   if (me) {
-    statusEl.textContent = `Ban: (${Math.round(me.targetX)}, ${Math.round(me.targetY)}) | Mau: ${me.color} | Online: ${total} | Pending: ${pendingInputs.length}`;
+    statusEl.textContent = `Bạn: (${Math.round(me.targetX)}, ${Math.round(me.targetY)}) | Màu: ${me.color} | Trực tuyến: ${total} | Chờ xử lý: ${pendingInputs.length}`;
     return;
   }
 
-  statusEl.textContent = `Dang ket noi... | Online: ${total}`;
+  statusEl.textContent = `Đang kết nối... | Trực tuyến: ${total}`;
 }
 
 function renderFrame() {
@@ -648,7 +648,7 @@ window.addEventListener("storage", (event) => {
 
   const session = readSession();
   if (!session) {
-    handleSessionConflict("Phien dang nhap da bi thay doi.", {
+    handleSessionConflict("Phiên đăng nhập đã bị thay đổi.", {
       logoutServer: false,
       releaseLock: false,
     });
@@ -656,7 +656,7 @@ window.addEventListener("storage", (event) => {
   }
 
   if (!ensureOwnedAccountLock(session)) {
-    handleSessionConflict("Tai khoan dang duoc su dung o tab khac.", {
+    handleSessionConflict("Tài khoản đang được sử dụng ở tab khác.", {
       logoutServer: false,
     });
   }
@@ -707,24 +707,24 @@ socket.on("playerJoined", applyJoinEvent);
 socket.on("playerLeft", applyLeftEvent);
 socket.on("connect_error", (error) => {
   if (String(error?.message || "").toLowerCase() === "unauthorized") {
-    handleSessionConflict("Phien dang nhap khong hop le.", {
+    handleSessionConflict("Phiên đăng nhập không hợp lệ.", {
       logoutServer: false,
     });
     return;
   }
-  statusEl.textContent = "Ket noi tam thoi gian doan. He thong dang tu ket noi lai...";
+  statusEl.textContent = "Kết nối tạm thời gián đoạn. Hệ thống đang tự kết nối lại...";
 });
 
 async function bootstrapAuthAndConnect() {
   const initialSession = readSession();
   if (!initialSession) {
-    statusEl.textContent = "Ban can dang nhap de vao game. Dang chuyen huong...";
+    statusEl.textContent = "Bạn cần đăng nhập để vào game. Đang chuyển hướng...";
     window.setTimeout(redirectToAuth, 150);
     return;
   }
 
   if (!ensureOwnedAccountLock(initialSession)) {
-    statusEl.textContent = "Tai khoan dang duoc su dung o tab khac.";
+    statusEl.textContent = "Tài khoản đang được sử dụng ở tab khác.";
     window.setTimeout(redirectToAuth, 300);
     return;
   }
@@ -732,11 +732,11 @@ async function bootstrapAuthAndConnect() {
   try {
     const me = await fetchAuthMe();
     if (!me || normalizeEmail(me.email) !== normalizeEmail(initialSession.email)) {
-      handleSessionConflict("Phien dang nhap da het han hoac bi thay doi.");
+      handleSessionConflict("Phiên đăng nhập đã hết hạn hoặc bị thay đổi.");
       return;
     }
   } catch (_error) {
-    statusEl.textContent = "Khong the xac thuc tai khoan. Dang thu lai...";
+    statusEl.textContent = "Không thể xác thực tài khoản. Đang thử lại...";
     window.setTimeout(() => {
       if (!redirectingToAuth) {
         bootstrapAuthAndConnect();
