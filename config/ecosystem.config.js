@@ -10,6 +10,8 @@
         PORT: 3000,
         ENABLE_REDIS: "false",
         REDIS_URL: "redis://127.0.0.1:6379",
+        MONGO_URL: "",
+        MONGO_DB_NAME: "game64x64",
         REDIS_PLAYERS_KEY: "game64x64:players",
         REDIS_USERS_KEY: "game64x64:users",
         REDIS_SESSION_PREFIX: "game64x64:session:",

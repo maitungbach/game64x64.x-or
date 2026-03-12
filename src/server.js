@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const { Server } = require("socket.io");
 const { createAdapter } = require("@socket.io/redis-adapter");
 const { createClient } = require("redis");
+const { MongoClient } = require("mongodb");
 
 const app = express();
 const server = http.createServer(app);
@@ -32,6 +33,8 @@ const REDIS_CELLS_KEY = process.env.REDIS_CELLS_KEY || "game64x64:cells";
 const REDIS_USERS_KEY = process.env.REDIS_USERS_KEY || "game64x64:users";
 const REDIS_SESSION_PREFIX = process.env.REDIS_SESSION_PREFIX || "game64x64:session:";
 const REDIS_USER_SESSION_PREFIX = process.env.REDIS_USER_SESSION_PREFIX || "game64x64:user-session:";
+const MONGO_URL = process.env.MONGO_URL || "";
+const MONGO_DB_NAME = process.env.MONGO_DB_NAME || "game64x64";
 const STATS_TOKEN = process.env.STATS_TOKEN || "";
 const STARTED_AT = new Date().toISOString();
 const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "game64x64_session";
@@ -68,6 +71,10 @@ const TEST_USERS_SEED_EMAILS = new Set(TEST_USERS_SEED.map((seed) => normalizeEm
 let redisPubClient = null;
 let redisSubClient = null;
 let redisDataClient = null;
+let mongoClient = null;
+let mongoDb = null;
+let mongoUsers = null;
+let mongoSessions = null;
 const stats = {
   connectionsTotal: 0,
   disconnectionsTotal: 0,
@@ -106,6 +113,13 @@ function normalizeSeq(value) {
     return null;
   }
   return value;
+}
+
+function normalizeCoord(value, max) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  return clamp(Math.floor(value), 0, max);
 }
 
 function normalizeEmail(value) {
@@ -236,6 +250,46 @@ function parseAuthSession(raw) {
   }
 }
 
+function isMongoEnabled() {
+  return Boolean(MONGO_URL);
+}
+
+function mapMongoUser(doc) {
+  if (!doc) {
+    return null;
+  }
+  return {
+    id: doc.id,
+    email: doc.email,
+    name: doc.name,
+    passwordHash: doc.passwordHash,
+    createdAt: doc.createdAt,
+  };
+}
+
+function mapMongoSession(doc) {
+  if (!doc) {
+    return null;
+  }
+  const expiresAt = Number.isInteger(doc.expiresAt)
+    ? doc.expiresAt
+    : doc.expiresAtDate instanceof Date
+      ? doc.expiresAtDate.getTime()
+      : null;
+  if (!expiresAt) {
+    return null;
+  }
+  return {
+    token: doc.token,
+    userId: doc.userId,
+    email: doc.email,
+    name: doc.name,
+    createdAt: Number.isInteger(doc.createdAt) ? doc.createdAt : Date.parse(doc.createdAt),
+    lastSeenAt: Number.isInteger(doc.lastSeenAt) ? doc.lastSeenAt : Date.parse(doc.lastSeenAt),
+    expiresAt,
+  };
+}
+
 function redisSessionKey(token) {
   return `${REDIS_SESSION_PREFIX}${token}`;
 }
@@ -248,6 +302,11 @@ async function getUserByEmail(email) {
   const normalized = normalizeEmail(email);
   if (!normalized) {
     return null;
+  }
+
+  if (mongoUsers) {
+    const doc = await mongoUsers.findOne({ email: normalized });
+    return mapMongoUser(doc);
   }
 
   if (!redisDataClient) {
@@ -266,6 +325,11 @@ async function getUserById(userId) {
     return null;
   }
 
+  if (mongoUsers) {
+    const doc = await mongoUsers.findOne({ id: userId });
+    return mapMongoUser(doc);
+  }
+
   if (!redisDataClient) {
     return usersById.get(userId) || null;
   }
@@ -281,6 +345,19 @@ async function getUserById(userId) {
 }
 
 async function saveUser(user) {
+  if (mongoUsers) {
+    const next = {
+      ...user,
+      email: normalizeEmail(user.email),
+    };
+    await mongoUsers.updateOne(
+      { email: next.email },
+      { $set: next },
+      { upsert: true },
+    );
+    return;
+  }
+
   if (!redisDataClient) {
     usersByEmail.set(user.email, user);
     usersById.set(user.id, user);
@@ -294,6 +371,13 @@ async function getUserSessionToken(userId) {
   if (!userId) {
     return null;
   }
+  if (mongoSessions) {
+    const doc = await mongoSessions.findOne(
+      { userId, expiresAt: { $gt: Date.now() } },
+      { sort: { expiresAt: -1 } },
+    );
+    return doc ? doc.token : null;
+  }
   if (!redisDataClient) {
     return userSessionTokenByUserId.get(userId) || null;
   }
@@ -302,6 +386,11 @@ async function getUserSessionToken(userId) {
 
 async function deleteSession(token, session = null) {
   if (!token) {
+    return;
+  }
+
+  if (mongoSessions) {
+    await mongoSessions.deleteOne({ token });
     return;
   }
 
@@ -328,6 +417,22 @@ async function deleteSession(token, session = null) {
 async function getSessionByToken(token) {
   if (!token) {
     return null;
+  }
+
+  if (mongoSessions) {
+    const doc = await mongoSessions.findOne({ token });
+    const session = mapMongoSession(doc);
+    if (!session) {
+      if (doc) {
+        await mongoSessions.deleteOne({ token });
+      }
+      return null;
+    }
+    if (session.expiresAt <= Date.now()) {
+      await mongoSessions.deleteOne({ token });
+      return null;
+    }
+    return session;
   }
 
   if (!redisDataClient) {
@@ -361,6 +466,19 @@ async function getSessionByToken(token) {
 }
 
 async function saveSession(session) {
+  if (mongoSessions) {
+    const next = {
+      ...session,
+      expiresAtDate: new Date(session.expiresAt),
+    };
+    await mongoSessions.updateOne(
+      { token: session.token },
+      { $set: next },
+      { upsert: true },
+    );
+    return;
+  }
+
   if (!redisDataClient) {
     sessionsByToken.set(session.token, session);
     userSessionTokenByUserId.set(session.userId, session.token);
@@ -551,6 +669,28 @@ async function connectRedisIfEnabled() {
   io.adapter(createAdapter(redisPubClient, redisSubClient));
   console.log(`[startup] Redis enabled at ${REDIS_URL}. Socket.io adapter active.`);
   await rebuildRedisCellsIndex();
+}
+
+async function connectMongoIfEnabled() {
+  if (!isMongoEnabled()) {
+    return;
+  }
+
+  mongoClient = new MongoClient(MONGO_URL, { maxPoolSize: 10 });
+  await mongoClient.connect();
+  mongoDb = mongoClient.db(MONGO_DB_NAME);
+  mongoUsers = mongoDb.collection("users");
+  mongoSessions = mongoDb.collection("sessions");
+
+  await Promise.all([
+    mongoUsers.createIndex({ email: 1 }, { unique: true }),
+    mongoUsers.createIndex({ id: 1 }, { unique: true }),
+    mongoSessions.createIndex({ token: 1 }, { unique: true }),
+    mongoSessions.createIndex({ userId: 1 }),
+    mongoSessions.createIndex({ expiresAtDate: 1 }, { expireAfterSeconds: 0 }),
+  ]);
+
+  console.log("[startup] MongoDB enabled for auth storage.");
 }
 
 async function getPlayersList() {
@@ -876,6 +1016,39 @@ async function movePlayerRedis(playerId, direction) {
     return { state: "occupied" };
   }
   return { state: "missing" };
+}
+
+async function movePlayerTo(playerId, x, y) {
+  const player = await getPlayerById(playerId);
+  if (!player) {
+    return { ok: false, reason: "missing_player" };
+  }
+
+  if (await isOccupied(x, y, playerId)) {
+    return { ok: false, reason: "occupied", player };
+  }
+
+  const next = {
+    ...player,
+    x,
+    y,
+  };
+
+  if (!redisDataClient) {
+    await savePlayer(next);
+    return { ok: true, player: next };
+  }
+
+  const fromCell = toCellKey(player.x, player.y);
+  const toCell = toCellKey(x, y);
+  const tx = redisDataClient.multi();
+  if (fromCell !== toCell) {
+    tx.hDel(REDIS_CELLS_KEY, fromCell);
+  }
+  tx.hSet(REDIS_CELLS_KEY, toCell, playerId);
+  tx.hSet(REDIS_PLAYERS_KEY, playerId, JSON.stringify(next));
+  await tx.exec();
+  return { ok: true, player: next };
 }
 
 function getNextPosition(player, direction) {
@@ -1232,17 +1405,41 @@ io.on("connection", (socket) => {
     socket.disconnect(true);
   });
 
-  socket.on("move", (payload) => {
-    stats.movesReceived += 1;
+    socket.on("move", (payload) => {
+      stats.movesReceived += 1;
 
-    (async () => {
-      const seq = normalizeSeq(payload?.seq);
-      const direction = payload?.direction;
-      if (typeof direction !== "string" || !VALID_DIRECTIONS.has(direction)) {
-        stats.movesRejectedInvalid += 1;
-        emitMoveAck(socket, seq, false, "invalid_direction");
-        return;
-      }
+      (async () => {
+        const seq = normalizeSeq(payload?.seq);
+        const coordX = normalizeCoord(payload?.x, GRID_SIZE - 1);
+        const coordY = normalizeCoord(payload?.y, GRID_SIZE - 1);
+        const hasCoordFields = payload && ("x" in payload || "y" in payload);
+        const hasCoords = coordX !== null && coordY !== null;
+        const direction = payload?.direction;
+
+        if (hasCoordFields && !hasCoords) {
+          stats.movesRejectedInvalid += 1;
+          emitMoveAck(socket, seq, false, "invalid_coords");
+          return;
+        }
+
+        if (hasCoords) {
+          const moved = await movePlayerTo(socket.id, coordX, coordY);
+          if (!moved.ok) {
+            emitMoveAck(socket, seq, false, moved.reason || "missing_player");
+            return;
+          }
+          emitPlayerMoved(moved.player, seq);
+          emitMoveAck(socket, seq, true, null, moved.player);
+          await emitPlayersNow();
+          stats.movesApplied += 1;
+          return;
+        }
+
+        if (typeof direction !== "string" || !VALID_DIRECTIONS.has(direction)) {
+          stats.movesRejectedInvalid += 1;
+          emitMoveAck(socket, seq, false, "invalid_direction");
+          return;
+        }
 
       const player = await getPlayerById(socket.id);
       if (!player) {
@@ -1270,26 +1467,28 @@ io.on("connection", (socket) => {
           emitMoveAck(socket, seq, false, "missing_player");
           return;
         }
-        const updatedPlayer = moved.player || player;
-        emitPlayerMoved(updatedPlayer, seq);
-        emitMoveAck(socket, seq, true, null, updatedPlayer);
-        stats.movesApplied += 1;
-      } else {
-        const next = getNextPosition(player, direction);
-        if (await isOccupied(next.x, next.y, socket.id)) {
-          stats.movesRejectedOccupied += 1;
+          const updatedPlayer = moved.player || player;
+          emitPlayerMoved(updatedPlayer, seq);
+          emitMoveAck(socket, seq, true, null, updatedPlayer);
+          await emitPlayersNow();
+          stats.movesApplied += 1;
+        } else {
+          const next = getNextPosition(player, direction);
+          if (await isOccupied(next.x, next.y, socket.id)) {
+            stats.movesRejectedOccupied += 1;
           emitMoveAck(socket, seq, false, "occupied", player);
           return;
         }
 
-        player.x = next.x;
-        player.y = next.y;
-        await savePlayer(player);
-        emitPlayerMoved(player, seq);
-        emitMoveAck(socket, seq, true, null, player);
-        stats.movesApplied += 1;
-      }
-    })().catch((error) => {
+          player.x = next.x;
+          player.y = next.y;
+          await savePlayer(player);
+          emitPlayerMoved(player, seq);
+          emitMoveAck(socket, seq, true, null, player);
+          await emitPlayersNow();
+          stats.movesApplied += 1;
+        }
+      })().catch((error) => {
       stats.errorsTotal += 1;
       console.error("[move] failed:", error);
     });
@@ -1315,6 +1514,7 @@ io.on("connection", (socket) => {
 });
 
 async function start() {
+  await connectMongoIfEnabled();
   await connectRedisIfEnabled();
   await ensureSeedUsers();
 
