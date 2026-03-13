@@ -20,6 +20,7 @@
         SNAPSHOT_INTERVAL_MS: "250",
         AUTH_COOKIE_SECURE: "false",
         AUTH_SESSION_TTL_SEC: "86400",
+        AUTH_REQUIRE_MONGO: "true",
         AUTH_REJECT_CONCURRENT: "true",
         AUTH_SEED_TEST_USERS: "true",
         AUTH_ALLOW_CONCURRENT_SEED_USERS: "true",

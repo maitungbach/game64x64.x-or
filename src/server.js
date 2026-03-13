@@ -40,6 +40,7 @@ const STARTED_AT = new Date().toISOString();
 const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "game64x64_session";
 const AUTH_COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || "false") === "true";
 const AUTH_SESSION_TTL_SEC = Number(process.env.AUTH_SESSION_TTL_SEC || 86400);
+const AUTH_REQUIRE_MONGO = String(process.env.AUTH_REQUIRE_MONGO || "false") === "true";
 const AUTH_REJECT_CONCURRENT = String(process.env.AUTH_REJECT_CONCURRENT || "true") === "true";
 const AUTH_SEED_TEST_USERS = String(process.env.AUTH_SEED_TEST_USERS || "true") === "true";
 const AUTH_ALLOW_CONCURRENT_SEED_USERS = String(
@@ -1515,6 +1516,11 @@ io.on("connection", (socket) => {
 
 async function start() {
   await connectMongoIfEnabled();
+  if (AUTH_REQUIRE_MONGO && !mongoUsers) {
+    console.error("[startup] MongoDB is required for auth, but it is not enabled.");
+    process.exit(1);
+  }
+
   await connectRedisIfEnabled();
   await ensureSeedUsers();
 
