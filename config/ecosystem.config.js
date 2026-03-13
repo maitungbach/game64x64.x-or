@@ -8,9 +8,9 @@
       env: {
         NODE_ENV: "production",
         PORT: 3000,
-        ENABLE_REDIS: "false",
+        ENABLE_REDIS: "true",
         REDIS_URL: "redis://127.0.0.1:6379",
-        MONGO_URL: "",
+        MONGO_URL: "mongodb://localhost:27017",
         MONGO_DB_NAME: "game64x64",
         REDIS_PLAYERS_KEY: "game64x64:players",
         REDIS_USERS_KEY: "game64x64:users",
