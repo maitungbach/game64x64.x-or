@@ -1,4 +1,4 @@
-﻿# Operations Guide
+# Operations Guide
 
 ## Admin dashboard
 - URL: `/admin`
@@ -23,6 +23,24 @@ Trang `/admin` co o nhap token de gui header nay.
 ```bash
 curl http://127.0.0.1:3000/api/health
 curl -H "x-stats-token: <token>" http://127.0.0.1:3000/api/stats
+```
+
+## Drain node truoc khi reboot
+Tren LB `103.252.74.109` / `172.16.10.202`:
+```bash
+sudo /usr/local/bin/game64x64-node-state status
+sudo /usr/local/bin/game64x64-node-state drain 172.16.10.216
+sudo /usr/local/bin/game64x64-node-state drain 172.16.10.253
+sudo /usr/local/bin/game64x64-node-state undrain 172.16.10.216
+```
+
+## Persist env cho PM2
+App nodes doc env tu file `/opt/game64x64/.env` thong qua `config/ecosystem.config.js`.
+Sau khi sua `.env`, nap lai:
+```bash
+cd /opt/game64x64
+pm2 restart config/ecosystem.config.js --only game64x64 --update-env
+pm2 save
 ```
 
 ## Broadcast batching
