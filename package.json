@@ -12,6 +12,7 @@
     "test:smoke": "node tests/realtime-smoke.test.js",
     "test:auth": "node tests/auth-smoke.test.js",
     "test:stats": "node tests/stats-smoke.test.js",
+    "test:config": "node tests/config-guard.test.js",
     "test:redis": "node tests/redis-atomic.test.js",
     "test:all": "npm run test:smoke && npm run test:auth && npm run test:stats && npm run test:redis",
     "test:load": "node scripts/load-test.js"

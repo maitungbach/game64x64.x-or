@@ -2,6 +2,7 @@
 const http = require("http");
 const path = require("path");
 const crypto = require("crypto");
+const os = require("os");
 const { Server } = require("socket.io");
 const { createAdapter } = require("@socket.io/redis-adapter");
 const { createClient } = require("redis");
@@ -44,6 +45,8 @@ function loadEnvFile(filePath) {
 
 loadEnvFile(path.join(__dirname, "..", ".env"));
 
+const packageJson = require(path.join(__dirname, "..", "package.json"));
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -74,6 +77,9 @@ const MONGO_URL = process.env.MONGO_URL || "";
 const MONGO_DB_NAME = process.env.MONGO_DB_NAME || "game64x64";
 const STATS_TOKEN = process.env.STATS_TOKEN || "";
 const STARTED_AT = new Date().toISOString();
+const APP_VERSION = String(process.env.APP_VERSION || packageJson.version || "0.0.0");
+const NODE_ID = String(process.env.NODE_ID || os.hostname() || `node-${process.pid}`);
+const STRICT_CLUSTER_CONFIG = String(process.env.STRICT_CLUSTER_CONFIG || "true") === "true";
 const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "game64x64_session";
 const AUTH_COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || "false") === "true";
 const AUTH_SESSION_TTL_SEC = Number(process.env.AUTH_SESSION_TTL_SEC || 86400);
@@ -290,6 +296,92 @@ function parseAuthSession(raw) {
 
 function isMongoEnabled() {
   return Boolean(MONGO_URL);
+}
+
+function isLoopbackHost(hostname) {
+  const raw = String(hostname || "").trim().toLowerCase();
+  if (!raw) {
+    return false;
+  }
+  return raw === "localhost"
+    || raw === "::1"
+    || raw === "[::1]"
+    || raw === "127.0.0.1"
+    || raw.startsWith("127.");
+}
+
+function getMongoHosts(mongoUrl) {
+  const raw = String(mongoUrl || "").trim();
+  if (!raw) {
+    return [];
+  }
+
+  const match = raw.match(/^mongodb(?:\+srv)?:\/\/([^/?]+)/i);
+  if (!match) {
+    return [];
+  }
+
+  const authority = match[1];
+  const hostList = authority.includes("@")
+    ? authority.split("@").slice(-1)[0]
+    : authority;
+
+  return hostList
+    .split(",")
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean)
+    .map((entry) => {
+      if (entry.startsWith("[")) {
+        const closingIndex = entry.indexOf("]");
+        return closingIndex >= 0 ? entry.slice(1, closingIndex) : entry;
+      }
+      return entry.split(":")[0];
+    });
+}
+
+function isLoopbackMongoUrl(mongoUrl) {
+  return getMongoHosts(mongoUrl).some(isLoopbackHost);
+}
+
+function isLoopbackRedisUrl(redisUrl) {
+  try {
+    const parsed = new URL(redisUrl);
+    return isLoopbackHost(parsed.hostname);
+  } catch (_error) {
+    return false;
+  }
+}
+
+function getConfigWarnings() {
+  const warnings = [];
+  if (ENABLE_REDIS && isLoopbackRedisUrl(REDIS_URL)) {
+    warnings.push("Redis is enabled but REDIS_URL points to a loopback host.");
+  }
+  if (ENABLE_REDIS && AUTH_REQUIRE_MONGO && isLoopbackMongoUrl(MONGO_URL)) {
+    warnings.push("Cluster mode is enabled but MONGO_URL points to a loopback host.");
+  }
+  if (AUTH_REQUIRE_MONGO && !MONGO_URL) {
+    warnings.push("AUTH_REQUIRE_MONGO is true but MONGO_URL is empty.");
+  }
+  return warnings;
+}
+
+function getConfigFatalErrors() {
+  if (!STRICT_CLUSTER_CONFIG || process.env.NODE_ENV !== "production") {
+    return [];
+  }
+
+  const errors = [];
+  if (ENABLE_REDIS && isLoopbackRedisUrl(REDIS_URL)) {
+    errors.push("Cluster mode in production cannot use a loopback REDIS_URL.");
+  }
+  if (ENABLE_REDIS && AUTH_REQUIRE_MONGO && isLoopbackMongoUrl(MONGO_URL)) {
+    errors.push("Cluster mode in production cannot use a loopback MONGO_URL.");
+  }
+  if (AUTH_REQUIRE_MONGO && !MONGO_URL) {
+    errors.push("Production auth requires MONGO_URL when AUTH_REQUIRE_MONGO=true.");
+  }
+  return errors;
 }
 
 function getAuthStorageMode() {
@@ -1236,10 +1328,15 @@ function scheduleEmitPlayers() {
 
 function getStatsSnapshot(playersCount) {
   return {
+    version: APP_VERSION,
+    nodeId: NODE_ID,
     startedAt: STARTED_AT,
     uptimeSec: Math.floor(process.uptime()),
     pid: process.pid,
     redisEnabled: ENABLE_REDIS,
+    authStorage: getAuthStorageMode(),
+    mongoConnected: Boolean(mongoUsers),
+    configWarnings: getConfigWarnings(),
     playersOnline: playersCount,
     socketsOnline: io.of("/").sockets.size,
     counters: { ...stats },
@@ -1398,10 +1495,14 @@ async function handleHealth(_req, res) {
   const list = await getPlayersList();
   res.json({
     ok: true,
+    version: APP_VERSION,
+    nodeId: NODE_ID,
+    startedAt: STARTED_AT,
     players: list.length,
     redisEnabled: ENABLE_REDIS,
     authStorage: getAuthStorageMode(),
     mongoConnected: Boolean(mongoUsers),
+    configWarnings: getConfigWarnings(),
   });
 }
 
@@ -1615,6 +1716,21 @@ io.on("connection", (socket) => {
 });
 
 async function start() {
+  const configWarnings = getConfigWarnings();
+  if (configWarnings.length > 0) {
+    for (const warning of configWarnings) {
+      console.warn(`[startup-warning] ${warning}`);
+    }
+  }
+
+  const configFatalErrors = getConfigFatalErrors();
+  if (configFatalErrors.length > 0) {
+    for (const fatalError of configFatalErrors) {
+      console.error(`[startup-config] ${fatalError}`);
+    }
+    process.exit(1);
+  }
+
   await connectMongoIfEnabled();
   if (AUTH_REQUIRE_MONGO && !mongoUsers) {
     console.error("[startup] MongoDB is required for auth, but it is not enabled.");

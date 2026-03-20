@@ -75,6 +75,15 @@ async function run() {
   try {
     await waitForHealth();
 
+    const health = await requestJson(`${BASE_URL}/api/health`);
+    assert.strictEqual(health.statusCode, 200, "Expected /api/health to succeed");
+    assert.strictEqual(health.body.ok, true, "Expected ok=true in health response");
+    assert.strictEqual(typeof health.body.version, "string", "version missing in health response");
+    assert(health.body.version.length > 0, "version should not be empty");
+    assert.strictEqual(typeof health.body.nodeId, "string", "nodeId missing in health response");
+    assert(health.body.nodeId.length > 0, "nodeId should not be empty");
+    assert(Array.isArray(health.body.configWarnings), "configWarnings missing in health response");
+
     const unauthorized = await requestJson(`${BASE_URL}/api/stats`);
     assert.strictEqual(unauthorized.statusCode, 401, "Expected /api/stats unauthorized without token");
 
@@ -84,7 +93,10 @@ async function run() {
 
     assert.strictEqual(authorized.statusCode, 200, "Expected /api/stats with token to succeed");
     assert.strictEqual(authorized.body.ok, true, "Expected ok=true in stats response");
+    assert.strictEqual(typeof authorized.body.version, "string", "version missing in stats response");
+    assert.strictEqual(typeof authorized.body.nodeId, "string", "nodeId missing in stats response");
     assert.strictEqual(typeof authorized.body.uptimeSec, "number", "uptimeSec missing");
+    assert(Array.isArray(authorized.body.configWarnings), "configWarnings missing in stats response");
     assert(authorized.body.counters, "counters missing");
 
     console.log("PASS stats smoke: auth + shape");
