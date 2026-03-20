@@ -83,6 +83,10 @@ const STRICT_CLUSTER_CONFIG = String(process.env.STRICT_CLUSTER_CONFIG || "true"
 const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "game64x64_session";
 const AUTH_COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || "false") === "true";
 const AUTH_SESSION_TTL_SEC = Number(process.env.AUTH_SESSION_TTL_SEC || 86400);
+const AUTH_LOGIN_FAIL_RATE_LIMIT_MAX = Number(process.env.AUTH_LOGIN_FAIL_RATE_LIMIT_MAX || 10);
+const AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC = Number(process.env.AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC || 300);
+const AUTH_REGISTER_RATE_LIMIT_MAX = Number(process.env.AUTH_REGISTER_RATE_LIMIT_MAX || 15);
+const AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC = Number(process.env.AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC || 600);
 const AUTH_REQUIRE_MONGO = String(process.env.AUTH_REQUIRE_MONGO || "false") === "true";
 const AUTH_REJECT_CONCURRENT = String(process.env.AUTH_REJECT_CONCURRENT || "true") === "true";
 const AUTH_SEED_TEST_USERS = String(process.env.AUTH_SEED_TEST_USERS || "true") === "true";
@@ -101,6 +105,7 @@ const usersByEmail = new Map();
 const usersById = new Map();
 const sessionsByToken = new Map();
 const userSessionTokenByUserId = new Map();
+const authRateLimitStore = new Map();
 const pendingSessionReleaseTimers = new Map();
 
 const TEST_USERS_SEED = [
@@ -229,6 +234,26 @@ function parseCookies(cookieHeader) {
     parsed[name] = decodeURIComponent(rest.join("=") || "");
   }
   return parsed;
+}
+
+function normalizeIp(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "unknown";
+  }
+  if (raw.startsWith("::ffff:")) {
+    return raw.slice(7);
+  }
+  return raw;
+}
+
+function getRequestIp(req) {
+  const forwarded = String(req.get("x-forwarded-for") || "").trim();
+  if (forwarded) {
+    const first = forwarded.split(",")[0];
+    return normalizeIp(first);
+  }
+  return normalizeIp(req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress);
 }
 
 function getAuthTokenFromRequest(req) {
@@ -440,6 +465,82 @@ function redisSessionKey(token) {
 
 function redisUserSessionKey(userId) {
   return `${REDIS_USER_SESSION_PREFIX}${userId}`;
+}
+
+function authRateLimitKey(scope, key) {
+  return `game64x64:auth-rate:${scope}:${key}`;
+}
+
+function getAuthRateLimitMemoryState(cacheKey, windowSec) {
+  const now = Date.now();
+  const current = authRateLimitStore.get(cacheKey);
+  if (!current || current.resetAt <= now) {
+    if (current) {
+      authRateLimitStore.delete(cacheKey);
+    }
+    return {
+      count: 0,
+      resetAt: now + (windowSec * 1000),
+    };
+  }
+  return current;
+}
+
+async function getAuthRateLimitState(scope, key, windowSec) {
+  const cacheKey = authRateLimitKey(scope, key);
+  if (!redisDataClient) {
+    const state = getAuthRateLimitMemoryState(cacheKey, windowSec);
+    return {
+      count: state.count,
+      retryAfterSec: Math.max(1, Math.ceil((state.resetAt - Date.now()) / 1000)),
+    };
+  }
+
+  const raw = await redisDataClient.get(cacheKey);
+  const ttl = await redisDataClient.ttl(cacheKey);
+  return {
+    count: raw ? Number(raw) || 0 : 0,
+    retryAfterSec: ttl > 0 ? ttl : windowSec,
+  };
+}
+
+async function incrementAuthRateLimit(scope, key, windowSec) {
+  const cacheKey = authRateLimitKey(scope, key);
+  if (!redisDataClient) {
+    const state = getAuthRateLimitMemoryState(cacheKey, windowSec);
+    const next = {
+      count: state.count + 1,
+      resetAt: state.resetAt,
+    };
+    authRateLimitStore.set(cacheKey, next);
+    return {
+      count: next.count,
+      retryAfterSec: Math.max(1, Math.ceil((next.resetAt - Date.now()) / 1000)),
+    };
+  }
+
+  const nextCount = await redisDataClient.incr(cacheKey);
+  if (nextCount === 1) {
+    await redisDataClient.expire(cacheKey, windowSec);
+  }
+  const ttl = await redisDataClient.ttl(cacheKey);
+  return {
+    count: nextCount,
+    retryAfterSec: ttl > 0 ? ttl : windowSec,
+  };
+}
+
+async function clearAuthRateLimit(scope, key) {
+  const cacheKey = authRateLimitKey(scope, key);
+  if (!redisDataClient) {
+    authRateLimitStore.delete(cacheKey);
+    return;
+  }
+  await redisDataClient.del(cacheKey);
+}
+
+function setRetryAfter(res, retryAfterSec) {
+  res.setHeader("Retry-After", String(Math.max(1, Number(retryAfterSec) || 1)));
 }
 
 async function getUserByEmail(email) {
@@ -1398,6 +1499,21 @@ app.get("/index.html", (_req, res) => {
 app.use(express.static(PUBLIC_DIR));
 
 app.post("/api/auth/register", async (req, res) => {
+  const clientIp = getRequestIp(req);
+  const registerRateKey = clientIp;
+  if (AUTH_REGISTER_RATE_LIMIT_MAX > 0) {
+    const currentLimit = await getAuthRateLimitState(
+      "register",
+      registerRateKey,
+      AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC,
+    );
+    if (currentLimit.count >= AUTH_REGISTER_RATE_LIMIT_MAX) {
+      setRetryAfter(res, currentLimit.retryAfterSec);
+      res.status(429).json({ ok: false, message: "Too many register attempts" });
+      return;
+    }
+  }
+
   const name = normalizeDisplayName(req.body?.name);
   const email = normalizeEmail(req.body?.email);
   const password = String(req.body?.password || "");
@@ -1410,6 +1526,19 @@ app.post("/api/auth/register", async (req, res) => {
   ) {
     res.status(400).json({ ok: false, message: "Invalid register payload" });
     return;
+  }
+
+  if (AUTH_REGISTER_RATE_LIMIT_MAX > 0) {
+    const nextLimit = await incrementAuthRateLimit(
+      "register",
+      registerRateKey,
+      AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC,
+    );
+    if (nextLimit.count > AUTH_REGISTER_RATE_LIMIT_MAX) {
+      setRetryAfter(res, nextLimit.retryAfterSec);
+      res.status(429).json({ ok: false, message: "Too many register attempts" });
+      return;
+    }
   }
 
   const existing = await getUserByEmail(email);
@@ -1442,19 +1571,48 @@ app.post("/api/auth/register", async (req, res) => {
 });
 
 app.post("/api/auth/login", async (req, res) => {
+  const clientIp = getRequestIp(req);
   const email = normalizeEmail(req.body?.email);
   const password = String(req.body?.password || "");
   const forceFromClient = req.body?.force === true;
+  const loginRateKey = `${clientIp}:${email || "unknown"}`;
   if (!isValidEmail(email) || !password) {
     res.status(400).json({ ok: false, message: "Invalid login payload" });
     return;
   }
 
+  if (AUTH_LOGIN_FAIL_RATE_LIMIT_MAX > 0) {
+    const currentLimit = await getAuthRateLimitState(
+      "login-fail",
+      loginRateKey,
+      AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC,
+    );
+    if (currentLimit.count >= AUTH_LOGIN_FAIL_RATE_LIMIT_MAX) {
+      setRetryAfter(res, currentLimit.retryAfterSec);
+      res.status(429).json({ ok: false, message: "Too many login attempts" });
+      return;
+    }
+  }
+
   const user = await getUserByEmail(email);
   if (!user || !verifyPassword(password, user.passwordHash)) {
+    if (AUTH_LOGIN_FAIL_RATE_LIMIT_MAX > 0) {
+      const nextLimit = await incrementAuthRateLimit(
+        "login-fail",
+        loginRateKey,
+        AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC,
+      );
+      if (nextLimit.count >= AUTH_LOGIN_FAIL_RATE_LIMIT_MAX) {
+        setRetryAfter(res, nextLimit.retryAfterSec);
+        res.status(429).json({ ok: false, message: "Too many login attempts" });
+        return;
+      }
+    }
     res.status(401).json({ ok: false, message: "Invalid credentials" });
     return;
   }
+
+  await clearAuthRateLimit("login-fail", loginRateKey);
 
   const forceExistingSession = forceFromClient || TEST_USERS_SEED_EMAILS.has(email);
   const created = await createSessionForUser(user, { forceExistingSession });

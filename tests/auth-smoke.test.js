@@ -162,6 +162,10 @@ function startServer() {
       AUTH_SEED_TEST_USERS: "true",
       AUTH_ALLOW_CONCURRENT_SEED_USERS: "true",
       AUTH_RELEASE_DELAY_MS: "200",
+      AUTH_LOGIN_FAIL_RATE_LIMIT_MAX: "2",
+      AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC: "60",
+      AUTH_REGISTER_RATE_LIMIT_MAX: "10",
+      AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC: "60",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -308,7 +312,20 @@ async function run() {
     });
     assert.strictEqual(seedLogin2.statusCode, 200, "Seed account should allow concurrent login");
 
-    console.log("PASS auth smoke: mongo register persistence + restart session + single-session reject + seed concurrent");
+    const wrongPassword1 = await requestJson("POST", "/api/auth/login", {
+      email,
+      password: "WrongPass1!",
+    });
+    assert.strictEqual(wrongPassword1.statusCode, 401, "First wrong password should return 401");
+
+    const wrongPassword2 = await requestJson("POST", "/api/auth/login", {
+      email,
+      password: "WrongPass2!",
+    });
+    assert.strictEqual(wrongPassword2.statusCode, 429, "Second wrong password should trigger login rate limit");
+    assert.strictEqual(wrongPassword2.body?.message, "Too many login attempts", "Expected rate limit message");
+
+    console.log("PASS auth smoke: mongo persistence + restart session + single-session + seed concurrent + login rate limit");
   } catch (error) {
     primaryError = error;
     throw error;
