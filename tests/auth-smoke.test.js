@@ -88,6 +88,7 @@ function requestJson(method, route, body = null, cookie = "") {
             statusCode: res.statusCode,
             body: parsed,
             setCookie: res.headers["set-cookie"] || [],
+            headers: res.headers,
           });
         });
       },
@@ -324,6 +325,7 @@ async function run() {
     });
     assert.strictEqual(wrongPassword2.statusCode, 429, "Second wrong password should trigger login rate limit");
     assert.strictEqual(wrongPassword2.body?.message, "Too many login attempts", "Expected rate limit message");
+    assert(Number(wrongPassword2.headers?.["retry-after"]) >= 1, "Expected Retry-After header on login rate limit");
 
     console.log("PASS auth smoke: mongo persistence + restart session + single-session + seed concurrent + login rate limit");
   } catch (error) {

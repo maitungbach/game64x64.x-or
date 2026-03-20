@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bảng điều khiển quản trị Game64x64</title>
-  <link rel="stylesheet" href="admin.css" />
+  <link rel="stylesheet" href="admin.css?v=20260320-1" />
 </head>
 <body>
   <main class="wrap">
@@ -29,6 +29,18 @@
           <li><strong>trạng thái:</strong> <span id="healthOk">-</span></li>
           <li><strong>người chơi:</strong> <span id="healthPlayers">-</span></li>
           <li><strong>redis:</strong> <span id="healthRedis">-</span></li>
+          <li><strong>auth storage:</strong> <span id="healthAuthStorage">-</span></li>
+          <li><strong>mongo connected:</strong> <span id="healthMongoConnected">-</span></li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2>Node đang phục vụ</h2>
+        <ul>
+          <li><strong>version:</strong> <span id="healthVersion">-</span></li>
+          <li><strong>node id:</strong> <span id="healthNodeId">-</span></li>
+          <li><strong>stats version:</strong> <span id="statsVersion">-</span></li>
+          <li><strong>stats node id:</strong> <span id="statsNodeId">-</span></li>
         </ul>
       </article>
 
@@ -39,6 +51,13 @@
           <li><strong>pid:</strong> <span id="pid">-</span></li>
           <li><strong>người chơi trực tuyến:</strong> <span id="playersOnline">-</span></li>
           <li><strong>socket đang kết nối:</strong> <span id="socketsOnline">-</span></li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2>Cảnh báo cấu hình</h2>
+        <ul id="healthWarnings" class="warning-list">
+          <li class="warning-item is-ok">Đang tải...</li>
         </ul>
       </article>
 
@@ -55,6 +74,6 @@
     </section>
   </main>
 
-  <script src="admin.js"></script>
+  <script src="admin.js?v=20260320-1"></script>
 </body>
 </html>

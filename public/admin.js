@@ -45,7 +45,7 @@ async function fetchJson(path, options = {}) {
   return { ok: response.ok, status: response.status, data };
 }
 
-async function refresh() {
+async function refreshLegacy() {
   const health = await fetchJson("/api/health");
   if (health.ok && health.data) {
     setText(el.healthOk, health.data.ok);
@@ -62,6 +62,71 @@ async function refresh() {
   if (stats.ok && stats.data) {
     setText(el.uptime, `${stats.data.uptimeSec}s`);
     setText(el.pid, stats.data.pid);
+    setText(el.playersOnline, stats.data.playersOnline);
+    setText(el.socketsOnline, stats.data.socketsOnline);
+    renderCounters(stats.data.counters);
+    setText(el.error, "-");
+  } else {
+    setText(el.error, `Lỗi thống kê ${stats.status}. Kiểm tra token.`);
+  }
+
+  setText(el.lastUpdate, new Date().toLocaleString());
+}
+
+Object.assign(el, {
+  healthVersion: document.getElementById("healthVersion"),
+  healthNodeId: document.getElementById("healthNodeId"),
+  healthAuthStorage: document.getElementById("healthAuthStorage"),
+  healthMongoConnected: document.getElementById("healthMongoConnected"),
+  healthWarnings: document.getElementById("healthWarnings"),
+  statsVersion: document.getElementById("statsVersion"),
+  statsNodeId: document.getElementById("statsNodeId"),
+});
+
+function renderWarnings(warnings) {
+  const items = Array.isArray(warnings) ? warnings : [];
+  el.healthWarnings.innerHTML = "";
+
+  if (items.length === 0) {
+    const item = document.createElement("li");
+    item.className = "warning-item is-ok";
+    item.textContent = "Không có cảnh báo cấu hình.";
+    el.healthWarnings.appendChild(item);
+    return;
+  }
+
+  for (const warning of items) {
+    const item = document.createElement("li");
+    item.className = "warning-item";
+    item.textContent = warning;
+    el.healthWarnings.appendChild(item);
+  }
+}
+
+async function refresh() {
+  const health = await fetchJson("/api/health");
+  if (health.ok && health.data) {
+    setText(el.healthOk, health.data.ok);
+    setText(el.healthPlayers, health.data.players);
+    setText(el.healthRedis, health.data.redisEnabled);
+    setText(el.healthVersion, health.data.version || "-");
+    setText(el.healthNodeId, health.data.nodeId || "-");
+    setText(el.healthAuthStorage, health.data.authStorage || "-");
+    setText(el.healthMongoConnected, health.data.mongoConnected);
+    renderWarnings(health.data.configWarnings);
+  }
+
+  const headers = {};
+  if (state.token) {
+    headers["x-stats-token"] = state.token;
+  }
+
+  const stats = await fetchJson("/api/stats", { headers });
+  if (stats.ok && stats.data) {
+    setText(el.uptime, `${stats.data.uptimeSec}s`);
+    setText(el.pid, stats.data.pid);
+    setText(el.statsVersion, stats.data.version || "-");
+    setText(el.statsNodeId, stats.data.nodeId || "-");
     setText(el.playersOnline, stats.data.playersOnline);
     setText(el.socketsOnline, stats.data.socketsOnline);
     renderCounters(stats.data.counters);

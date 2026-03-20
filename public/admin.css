@@ -5,6 +5,12 @@
   --border: #cfd9e8;
   --accent: #0f766e;
   --error: #b91c1c;
+  --warn-bg: #fff7ed;
+  --warn-border: #fdba74;
+  --warn-text: #9a3412;
+  --ok-bg: #ecfdf5;
+  --ok-border: #6ee7b7;
+  --ok-text: #166534;
 }
 
 * {
@@ -90,6 +96,27 @@ h2 {
 ul {
   margin: 0;
   padding-left: 16px;
+}
+
+.warning-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.warning-item {
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.warning-item.is-ok {
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--ok-text);
 }
 
 .counter-grid {
