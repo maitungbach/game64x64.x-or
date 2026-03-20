@@ -1,12 +1,52 @@
 const { spawn } = require("child_process");
+const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const assert = require("assert");
+const { MongoClient } = require("mongodb");
 const { io } = require("socket.io-client");
 
 const TEST_PORT = 3104;
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
 const SERVER_PATH = path.join(__dirname, "..", "src", "server.js");
+const ENV_PATH = path.join(__dirname, "..", ".env");
+
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return {};
+  }
+
+  return fs
+    .readFileSync(filePath, "utf8")
+    .split(/\r?\n/)
+    .reduce((acc, rawLine) => {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) {
+        return acc;
+      }
+
+      const separatorIndex = line.indexOf("=");
+      if (separatorIndex === -1) {
+        return acc;
+      }
+
+      const key = line.slice(0, separatorIndex).trim();
+      let value = line.slice(separatorIndex + 1).trim();
+      if (
+        (value.startsWith("\"") && value.endsWith("\""))
+        || (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+
+      acc[key] = value;
+      return acc;
+    }, {});
+}
+
+const FILE_ENV = loadEnvFile(ENV_PATH);
+const MONGO_URL = process.env.MONGO_URL || FILE_ENV.MONGO_URL || "mongodb://127.0.0.1:27017";
+const MONGO_DB_NAME = process.env.MONGO_DB_NAME || FILE_ENV.MONGO_DB_NAME || "game64x64";
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -111,7 +151,7 @@ function waitForSocketConnect(socket) {
   });
 }
 
-async function run() {
+function startServer() {
   const server = spawn(process.execPath, [SERVER_PATH], {
     env: {
       ...process.env,
@@ -137,12 +177,67 @@ async function run() {
     stderr += chunk.toString();
   });
 
+  return {
+    process: server,
+    getStdout() {
+      return stdout;
+    },
+    getStderr() {
+      return stderr;
+    },
+  };
+}
+
+async function stopServer(serverHandle) {
+  if (!serverHandle?.process) {
+    return;
+  }
+
+  const server = serverHandle.process;
+  if (server.exitCode !== null || server.killed) {
+    return;
+  }
+
+  const exited = new Promise((resolve) => {
+    server.once("exit", resolve);
+  });
+
+  server.kill();
+  await Promise.race([exited, delay(600)]);
+}
+
+async function cleanupMongoAuthState(db, email) {
+  const users = db.collection("users");
+  const sessions = db.collection("sessions");
+  const existing = await users.findOne({ email });
+  if (existing?.id) {
+    await sessions.deleteMany({ userId: existing.id });
+  }
+  await users.deleteMany({ email });
+}
+
+async function run() {
+  const mongoClient = new MongoClient(MONGO_URL, { maxPoolSize: 4 });
+  await mongoClient.connect();
+  const mongoDb = mongoClient.db(MONGO_DB_NAME);
+  const email = `auth_test_${Date.now()}@example.com`;
   let activeSocket = null;
+  let serverHandle = null;
+  let combinedStderr = "";
+  let startedServers = 0;
+  let primaryError = null;
 
   try {
-    await waitForHealth();
+    await cleanupMongoAuthState(mongoDb, email);
 
-    const email = `auth_test_${Date.now()}@example.com`;
+    serverHandle = startServer();
+    await waitForHealth();
+    startedServers += 1;
+    const healthRes = await requestJson("GET", "/api/health");
+    assert.strictEqual(healthRes.statusCode, 200, "Health should return 200");
+    assert.strictEqual(healthRes.body?.authStorage, "mongo", "Auth storage should use MongoDB");
+    assert.strictEqual(healthRes.body?.mongoConnected, true, "MongoDB should be connected");
+
     const password = "Test123!";
     const name = "Auth Test";
 
@@ -158,6 +253,20 @@ async function run() {
     const meRes = await requestJson("GET", "/api/auth/me", null, registerCookie);
     assert.strictEqual(meRes.statusCode, 200, "Expected /api/auth/me authorized");
     assert.strictEqual(meRes.body?.user?.email, email, "Expected /api/auth/me to return registered email");
+
+    const mongoUser = await mongoDb.collection("users").findOne({ email });
+    assert(mongoUser, "Registered account should be stored in MongoDB users collection");
+    assert.strictEqual(mongoUser.name, name, "MongoDB should store the registered display name");
+
+    combinedStderr += serverHandle.getStderr();
+    await stopServer(serverHandle);
+    serverHandle = startServer();
+    await waitForHealth();
+    startedServers += 1;
+
+    const meAfterRestartRes = await requestJson("GET", "/api/auth/me", null, registerCookie);
+    assert.strictEqual(meAfterRestartRes.statusCode, 200, "Expected auth session to survive server restart");
+    assert.strictEqual(meAfterRestartRes.body?.user?.email, email, "Expected restarted server to load user from MongoDB");
 
     const logoutRes = await requestJson("POST", "/api/auth/logout", null, registerCookie);
     assert.strictEqual(logoutRes.statusCode, 200, "Logout should return 200");
@@ -199,20 +308,26 @@ async function run() {
     });
     assert.strictEqual(seedLogin2.statusCode, 200, "Seed account should allow concurrent login");
 
-    console.log("PASS auth smoke: register/login/me/logout + single-session reject + seed concurrent");
+    console.log("PASS auth smoke: mongo register persistence + restart session + single-session reject + seed concurrent");
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
     if (activeSocket) {
       activeSocket.disconnect();
     }
-    server.kill();
-    await delay(250);
-
-    if (stderr.trim()) {
-      console.error(stderr.trim());
+    if (serverHandle) {
+      combinedStderr += serverHandle.getStderr();
+      await stopServer(serverHandle);
     }
-    if (!stdout.includes("Server is running")) {
+    if (combinedStderr.trim()) {
+      console.error(combinedStderr.trim());
+    }
+    if (!primaryError && startedServers < 2) {
       throw new Error("Server did not start correctly in auth smoke test");
     }
+    await cleanupMongoAuthState(mongoDb, email);
+    await mongoClient.close();
   }
 }
 

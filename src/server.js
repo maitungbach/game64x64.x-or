@@ -292,6 +292,20 @@ function isMongoEnabled() {
   return Boolean(MONGO_URL);
 }
 
+function getAuthStorageMode() {
+  if (mongoUsers) {
+    return "mongo";
+  }
+  if (redisDataClient) {
+    return "redis";
+  }
+  return "memory";
+}
+
+function isDuplicateAuthUserError(error) {
+  return Number(error?.code) === 11000;
+}
+
 function mapMongoUser(doc) {
   if (!doc) {
     return null;
@@ -382,6 +396,41 @@ async function getUserById(userId) {
   return null;
 }
 
+async function createUser(user) {
+  const next = {
+    ...user,
+    email: normalizeEmail(user.email),
+    name: normalizeDisplayName(user.name),
+  };
+
+  if (mongoUsers) {
+    try {
+      await mongoUsers.insertOne(next);
+      return { ok: true, user: next };
+    } catch (error) {
+      if (isDuplicateAuthUserError(error)) {
+        return { ok: false, reason: "exists" };
+      }
+      throw error;
+    }
+  }
+
+  if (!redisDataClient) {
+    if (usersByEmail.has(next.email)) {
+      return { ok: false, reason: "exists" };
+    }
+    usersByEmail.set(next.email, next);
+    usersById.set(next.id, next);
+    return { ok: true, user: next };
+  }
+
+  const saved = await redisDataClient.hSetNX(REDIS_USERS_KEY, next.email, JSON.stringify(next));
+  if (!saved) {
+    return { ok: false, reason: "exists" };
+  }
+  return { ok: true, user: next };
+}
+
 async function saveUser(user) {
   if (mongoUsers) {
     const next = {
@@ -397,12 +446,22 @@ async function saveUser(user) {
   }
 
   if (!redisDataClient) {
-    usersByEmail.set(user.email, user);
-    usersById.set(user.id, user);
+    const next = {
+      ...user,
+      email: normalizeEmail(user.email),
+      name: normalizeDisplayName(user.name),
+    };
+    usersByEmail.set(next.email, next);
+    usersById.set(next.id, next);
     return;
   }
 
-  await redisDataClient.hSet(REDIS_USERS_KEY, user.email, JSON.stringify(user));
+  const next = {
+    ...user,
+    email: normalizeEmail(user.email),
+    name: normalizeDisplayName(user.name),
+  };
+  await redisDataClient.hSet(REDIS_USERS_KEY, next.email, JSON.stringify(next));
 }
 
 async function getUserSessionToken(userId) {
@@ -654,11 +713,6 @@ async function ensureSeedUsers() {
   }
 
   for (const seed of TEST_USERS_SEED) {
-    // eslint-disable-next-line no-await-in-loop
-    const existing = await getUserByEmail(seed.email);
-    if (existing) {
-      continue;
-    }
     const user = {
       id: randomId(12),
       email: normalizeEmail(seed.email),
@@ -667,7 +721,10 @@ async function ensureSeedUsers() {
       createdAt: new Date().toISOString(),
     };
     // eslint-disable-next-line no-await-in-loop
-    await saveUser(user);
+    const created = await createUser(user);
+    if (!created.ok && created.reason !== "exists") {
+      throw new Error(`Failed to seed auth user for ${seed.email}`);
+    }
   }
 }
 
@@ -1271,16 +1328,20 @@ app.post("/api/auth/register", async (req, res) => {
     passwordHash: hashPassword(password),
     createdAt: new Date().toISOString(),
   };
-  await saveUser(user);
+  const createdUser = await createUser(user);
+  if (!createdUser.ok) {
+    res.status(409).json({ ok: false, message: "Email already registered" });
+    return;
+  }
 
-  const created = await createSessionForUser(user);
+  const created = await createSessionForUser(createdUser.user);
   if (!created.ok) {
     res.status(409).json({ ok: false, message: created.reason });
     return;
   }
 
   setAuthCookie(res, created.session.token);
-  res.status(201).json({ ok: true, user: toPublicUser(user) });
+  res.status(201).json({ ok: true, user: toPublicUser(createdUser.user) });
 });
 
 app.post("/api/auth/login", async (req, res) => {
@@ -1339,6 +1400,8 @@ async function handleHealth(_req, res) {
     ok: true,
     players: list.length,
     redisEnabled: ENABLE_REDIS,
+    authStorage: getAuthStorageMode(),
+    mongoConnected: Boolean(mongoUsers),
   });
 }
 
