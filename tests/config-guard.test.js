@@ -8,6 +8,45 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function waitForExit(server, timeoutMs = 6000) {
+  if (server.exitCode !== null) {
+    return Promise.resolve(server.exitCode);
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Config guard test timed out"));
+    }, timeoutMs);
+
+    function cleanup() {
+      clearTimeout(timer);
+      server.off("error", onError);
+      server.off("exit", onExit);
+      server.off("close", onClose);
+    }
+
+    function onError(error) {
+      cleanup();
+      reject(error);
+    }
+
+    function onExit(code) {
+      cleanup();
+      resolve(code);
+    }
+
+    function onClose(code) {
+      cleanup();
+      resolve(code);
+    }
+
+    server.once("error", onError);
+    server.once("exit", onExit);
+    server.once("close", onClose);
+  });
+}
+
 async function run() {
   const server = spawn(process.execPath, [SERVER_PATH], {
     env: {
@@ -34,21 +73,7 @@ async function run() {
     stderr += chunk.toString();
   });
 
-  const exitCode = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error("Config guard test timed out"));
-    }, 6000);
-
-    server.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-
-    server.once("exit", (code) => {
-      clearTimeout(timer);
-      resolve(code);
-    });
-  });
+  const exitCode = await waitForExit(server);
 
   await delay(100);
 

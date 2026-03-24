@@ -1,0 +1,32 @@
+upstream game64x64_cluster {
+    ip_hash;
+    server 172.16.10.216:80 max_fails=2 fail_timeout=10s;
+    server 172.16.10.253:80 max_fails=2 fail_timeout=10s;
+    keepalive 64;
+}
+
+server {
+    listen 80;
+    server_name colorbox64x64.online www.colorbox64x64.online;
+
+    location / {
+        proxy_pass http://game64x64_cluster;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Bat buoc cho WebSocket
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # Fail over to the other upstream on common errors/timeouts.
+        proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+}

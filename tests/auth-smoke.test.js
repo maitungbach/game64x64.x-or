@@ -157,8 +157,13 @@ function startServer() {
     env: {
       ...process.env,
       PORT: String(TEST_PORT),
+      NODE_ENV: "test",
       ENABLE_REDIS: "false",
+      STRICT_CLUSTER_CONFIG: "false",
+      MONGO_URL,
+      MONGO_DB_NAME,
       AUTH_REQUIRED: "true",
+      AUTH_REQUIRE_MONGO: "true",
       AUTH_REJECT_CONCURRENT: "true",
       AUTH_SEED_TEST_USERS: "true",
       AUTH_ALLOW_CONCURRENT_SEED_USERS: "true",

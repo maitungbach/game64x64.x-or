@@ -76,23 +76,35 @@ function waitForConnect(socket) {
   });
 }
 
+async function stopServer(server) {
+  if (!server || server.exitCode !== null || server.killed) {
+    return;
+  }
+
+  const exited = new Promise((resolve) => {
+    server.once("exit", resolve);
+  });
+
+  server.kill();
+  await Promise.race([exited, delay(600)]);
+}
+
 async function run() {
   const server = spawn(process.execPath, [SERVER_PATH], {
     env: {
       ...process.env,
       PORT: String(TEST_PORT),
+      NODE_ENV: "test",
       ENABLE_REDIS: "false",
       AUTH_REQUIRED: "false",
+      AUTH_REQUIRE_MONGO: "false",
+      STRICT_CLUSTER_CONFIG: "false",
+      MONGO_URL: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  let stdout = "";
   let stderr = "";
-
-  server.stdout.on("data", (chunk) => {
-    stdout += chunk.toString();
-  });
 
   server.stderr.on("data", (chunk) => {
     stderr += chunk.toString();
@@ -157,15 +169,10 @@ async function run() {
       c3.disconnect();
     }
 
-    server.kill();
-    await delay(300);
+    await stopServer(server);
 
     if (stderr.trim()) {
       console.error(stderr.trim());
-    }
-
-    if (!stdout.includes("Server is running")) {
-      throw new Error("Server did not start correctly in test run");
     }
   }
 }

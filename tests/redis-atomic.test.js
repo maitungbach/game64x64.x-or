@@ -1,4 +1,5 @@
 const { spawn } = require("child_process");
+const http = require("http");
 const path = require("path");
 const assert = require("assert");
 const { createClient } = require("redis");
@@ -15,12 +16,22 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function requestHealth() {
+  return new Promise((resolve, reject) => {
+    const req = http.get(`${BASE_URL}/api/health`, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    req.on("error", reject);
+  });
+}
+
 async function waitForServerReady(timeoutMs = 8000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${BASE_URL}/api/health`);
-      if (res.status === 200) {
+      const statusCode = await requestHealth();
+      if (statusCode === 200) {
         return;
       }
     } catch (_error) {
@@ -38,6 +49,19 @@ function connectClient() {
     reconnection: false,
     timeout: 4000,
   });
+}
+
+async function stopServer(server) {
+  if (!server || server.exitCode !== null || server.killed) {
+    return;
+  }
+
+  const exited = new Promise((resolve) => {
+    server.once("exit", resolve);
+  });
+
+  server.kill();
+  await Promise.race([exited, delay(600)]);
 }
 
 async function main() {
@@ -68,8 +92,12 @@ async function main() {
     env: {
       ...process.env,
       PORT: String(TEST_PORT),
+      NODE_ENV: "test",
       ENABLE_REDIS: "true",
       AUTH_REQUIRED: "false",
+      AUTH_REQUIRE_MONGO: "false",
+      STRICT_CLUSTER_CONFIG: "false",
+      MONGO_URL: "",
       REDIS_URL,
       REDIS_PLAYERS_KEY,
       REDIS_CELLS_KEY,
@@ -78,11 +106,7 @@ async function main() {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  let stdout = "";
   let stderr = "";
-  server.stdout.on("data", (chunk) => {
-    stdout += chunk.toString();
-  });
   server.stderr.on("data", (chunk) => {
     stderr += chunk.toString();
   });
@@ -141,14 +165,10 @@ async function main() {
       socket.disconnect();
     }
 
-    server.kill();
-    await delay(250);
+    await stopServer(server);
 
     if (stderr.trim()) {
       console.error(stderr.trim());
-    }
-    if (!stdout.includes("Server is running")) {
-      throw new Error("Server did not start correctly in redis atomic test");
     }
   }
 }
