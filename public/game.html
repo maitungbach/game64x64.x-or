@@ -1,26 +1,26 @@
 <!doctype html>
 <html lang="vi">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sân chơi sắc màu 64x64 - Giai đoạn 2 thời gian thực</title>
-  <link rel="stylesheet" href="style.css?v=20260226-6" />
-</head>
-<body>
-  <main class="app">
-    <div class="account-bar">
-      <span id="accountName">Chưa đăng nhập</span>
-      <a id="authAction" href="/auth.html">Đăng nhập / Đăng ký</a>
-    </div>
-    <h1>Sân chơi sắc màu 64x64</h1>
-    <p>Dùng phím mũi tên hoặc WASD để di chuyển pixel theo thời gian thực.</p>
-    <p><a href="/admin">Mở trang bảng điều khiển quản trị</a></p>
-    <canvas id="game" width="640" height="640" aria-label="Lưới 64x64"></canvas>
-    <p id="status" aria-live="polite"></p>
-  </main>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sân chơi sắc màu 64x64 - Giai đoạn 2 thời gian thực</title>
+    <link rel="stylesheet" href="style.css?v=20260226-6" />
+  </head>
+  <body>
+    <main class="app">
+      <div class="account-bar">
+        <span id="accountName">Chưa đăng nhập</span>
+        <a id="authAction" href="/auth.html">Đăng nhập / Đăng ký</a>
+      </div>
+      <h1>Sân chơi sắc màu 64x64</h1>
+      <p>Dùng phím mũi tên hoặc WASD để di chuyển pixel theo thời gian thực.</p>
+      <p><a href="/admin">Mở trang bảng điều khiển quản trị</a></p>
+      <canvas id="game" width="640" height="640" aria-label="Lưới 64x64"></canvas>
+      <p id="status" aria-live="polite"></p>
+    </main>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="auth-shared.js?v=20260326-1"></script>
-  <script src="main.js?v=20260326-1"></script>
-</body>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="auth-shared.js?v=20260326-1"></script>
+    <script src="main.js?v=20260326-1"></script>
+  </body>
 </html>

@@ -1,12 +1,12 @@
-﻿const { spawn } = require("child_process");
-const http = require("http");
-const path = require("path");
-const assert = require("assert");
-const { io } = require("socket.io-client");
+﻿const { spawn } = require('child_process');
+const http = require('http');
+const path = require('path');
+const assert = require('assert');
+const { io } = require('socket.io-client');
 
 const TEST_PORT = 3101;
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
-const SERVER_PATH = path.join(__dirname, "..", "src", "server.js");
+const SERVER_PATH = path.join(__dirname, '..', 'src', 'server.js');
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -18,10 +18,9 @@ async function waitFor(condition, timeoutMs = 4000, intervalMs = 30) {
     if (condition()) {
       return;
     }
-    // eslint-disable-next-line no-await-in-loop
     await delay(intervalMs);
   }
-  throw new Error("Timeout waiting for condition");
+  throw new Error('Timeout waiting for condition');
 }
 
 function waitForServerReady(timeoutMs = 6000) {
@@ -37,12 +36,12 @@ function waitForServerReady(timeoutMs = 6000) {
         retry();
       });
 
-      req.on("error", retry);
+      req.on('error', retry);
     }
 
     function retry() {
       if (Date.now() - start > timeoutMs) {
-        reject(new Error("Server healthcheck timeout"));
+        reject(new Error('Server healthcheck timeout'));
         return;
       }
       setTimeout(probe, 100);
@@ -54,7 +53,7 @@ function waitForServerReady(timeoutMs = 6000) {
 
 function connectClient() {
   return io(BASE_URL, {
-    transports: ["websocket"],
+    transports: ['websocket'],
     reconnection: false,
     timeout: 4000,
   });
@@ -62,14 +61,14 @@ function connectClient() {
 
 function waitForConnect(socket) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Connect timeout")), 4000);
+    const timer = setTimeout(() => reject(new Error('Connect timeout')), 4000);
 
-    socket.once("connect", () => {
+    socket.once('connect', () => {
       clearTimeout(timer);
       resolve();
     });
 
-    socket.once("connect_error", (error) => {
+    socket.once('connect_error', (error) => {
       clearTimeout(timer);
       reject(error);
     });
@@ -82,7 +81,7 @@ async function stopServer(server) {
   }
 
   const exited = new Promise((resolve) => {
-    server.once("exit", resolve);
+    server.once('exit', resolve);
   });
 
   server.kill();
@@ -94,19 +93,19 @@ async function run() {
     env: {
       ...process.env,
       PORT: String(TEST_PORT),
-      NODE_ENV: "test",
-      ENABLE_REDIS: "false",
-      AUTH_REQUIRED: "false",
-      AUTH_REQUIRE_MONGO: "false",
-      STRICT_CLUSTER_CONFIG: "false",
-      MONGO_URL: "",
+      NODE_ENV: 'test',
+      ENABLE_REDIS: 'false',
+      AUTH_REQUIRED: 'false',
+      AUTH_REQUIRE_MONGO: 'false',
+      STRICT_CLUSTER_CONFIG: 'false',
+      MONGO_URL: '',
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  let stderr = "";
+  let stderr = '';
 
-  server.stderr.on("data", (chunk) => {
+  server.stderr.on('data', (chunk) => {
     stderr += chunk.toString();
   });
 
@@ -127,15 +126,15 @@ async function run() {
       c3: [],
     };
 
-    c1.on("updatePlayers", (players) => {
+    c1.on('updatePlayers', (players) => {
       state.c1 = Array.isArray(players) ? players : [];
     });
 
-    c2.on("updatePlayers", (players) => {
+    c2.on('updatePlayers', (players) => {
       state.c2 = Array.isArray(players) ? players : [];
     });
 
-    c3.on("updatePlayers", (players) => {
+    c3.on('updatePlayers', (players) => {
       state.c3 = Array.isArray(players) ? players : [];
     });
 
@@ -144,9 +143,9 @@ async function run() {
     await waitFor(() => state.c1.length >= 3);
 
     const meBefore = state.c1.find((p) => p.id === c1.id);
-    assert(meBefore, "Client 1 not found in player list");
+    assert(meBefore, 'Client 1 not found in player list');
 
-    c1.emit("move", { direction: "right" });
+    c1.emit('move', { direction: 'right' });
     await waitFor(() => {
       const p = state.c2.find((player) => player.id === c1.id);
       return Boolean(p && p.x >= meBefore.x);
@@ -157,7 +156,7 @@ async function run() {
 
     await waitFor(() => !state.c1.some((p) => p.id === c3Id));
 
-    console.log("PASS realtime smoke: connect/move/disconnect");
+    console.log('PASS realtime smoke: connect/move/disconnect');
   } finally {
     if (c1) {
       c1.disconnect();
@@ -178,6 +177,6 @@ async function run() {
 }
 
 run().catch((error) => {
-  console.error("FAIL realtime smoke:", error.message);
+  console.error('FAIL realtime smoke:', error.message);
   process.exit(1);
 });

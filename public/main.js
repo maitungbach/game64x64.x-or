@@ -5,11 +5,11 @@ const LOCAL_LERP = 0.55;
 const REMOTE_LERP = 0.28;
 const SNAP_DISTANCE = 4;
 
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
-const statusEl = document.getElementById("status");
-const accountNameEl = document.getElementById("accountName");
-const authActionEl = document.getElementById("authAction");
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const accountNameEl = document.getElementById('accountName');
+const authActionEl = document.getElementById('authAction');
 const {
   ACTIVE_SESSIONS_KEY,
   clearClientSession,
@@ -23,10 +23,10 @@ const {
   releaseOwnedAccountLock,
 } = window.Game64Auth;
 const LOCK_HEARTBEAT_MS = 4_000;
-const LOGIN_URL = getLoginUrl("/game.html");
+const LOGIN_URL = getLoginUrl('/game.html');
 const AUTH_RETRY_DELAY_MS = 1200;
 const socket = io({
-  transports: ["websocket"],
+  transports: ['websocket'],
   autoConnect: false,
   reconnection: true,
   reconnectionDelay: 600,
@@ -46,10 +46,10 @@ let myServerPos = null;
 let lockHeartbeatTimer = null;
 let redirectingToAuth = false;
 
-const gridLayer = document.createElement("canvas");
+const gridLayer = document.createElement('canvas');
 gridLayer.width = CANVAS_SIZE;
 gridLayer.height = CANVAS_SIZE;
-const gridCtx = gridLayer.getContext("2d");
+const gridCtx = gridLayer.getContext('2d');
 gridCtx.imageSmoothingEnabled = false;
 
 function redirectToAuth() {
@@ -88,7 +88,7 @@ function handleSessionConflict(message, options = {}) {
   }
   stopLockHeartbeat();
   resetRuntimeState();
-  statusEl.textContent = message || "Phiên đăng nhập không hợp lệ. Đang chuyển hướng...";
+  statusEl.textContent = message || 'Phiên đăng nhập không hợp lệ. Đang chuyển hướng...';
   renderAccountBar();
   window.setTimeout(redirectToAuth, 150);
 }
@@ -98,7 +98,7 @@ function startLockHeartbeat() {
   lockHeartbeatTimer = window.setInterval(() => {
     const session = readSession();
     if (!session) {
-      handleSessionConflict("Phiên đăng nhập đã bị hủy.", {
+      handleSessionConflict('Phiên đăng nhập đã bị hủy.', {
         logoutServer: false,
         releaseLock: false,
       });
@@ -106,7 +106,7 @@ function startLockHeartbeat() {
     }
 
     if (!ensureOwnedAccountLock(session)) {
-      handleSessionConflict("Tài khoản đang được sử dụng ở tab khác.", {
+      handleSessionConflict('Tài khoản đang được sử dụng ở tab khác.', {
         logoutServer: false,
       });
     }
@@ -120,16 +120,16 @@ function renderAccountBar() {
 
   const session = readSession();
   if (!session) {
-    accountNameEl.textContent = "Chưa đăng nhập";
-    authActionEl.textContent = "Đăng nhập / Đăng ký";
+    accountNameEl.textContent = 'Chưa đăng nhập';
+    authActionEl.textContent = 'Đăng nhập / Đăng ký';
     authActionEl.href = LOGIN_URL;
     authActionEl.onclick = null;
     return;
   }
 
   accountNameEl.textContent = `Xin chào, ${session.name || session.email}`;
-  authActionEl.textContent = "Đăng xuất";
-  authActionEl.href = "#";
+  authActionEl.textContent = 'Đăng xuất';
+  authActionEl.href = '#';
   authActionEl.onclick = async (event) => {
     event.preventDefault();
     clearClientSession();
@@ -139,7 +139,7 @@ function renderAccountBar() {
     }
     stopLockHeartbeat();
     resetRuntimeState();
-    statusEl.textContent = "Đã đăng xuất. Đang chuyển đến trang đăng nhập...";
+    statusEl.textContent = 'Đã đăng xuất. Đang chuyển đến trang đăng nhập...';
     renderAccountBar();
     redirectToAuth();
   };
@@ -158,7 +158,7 @@ function normalizeCoord(value, fallback = 0) {
 }
 
 function drawGridLayer() {
-  gridCtx.strokeStyle = "#dbe3f0";
+  gridCtx.strokeStyle = '#dbe3f0';
   gridCtx.lineWidth = 1;
 
   for (let i = 0; i <= GRID_SIZE; i += 1) {
@@ -180,13 +180,13 @@ function getNextPosition(position, direction) {
   let nextX = position.x;
   let nextY = position.y;
 
-  if (direction === "up") {
+  if (direction === 'up') {
     nextY = clamp(position.y - 1, 0, GRID_SIZE - 1);
-  } else if (direction === "down") {
+  } else if (direction === 'down') {
     nextY = clamp(position.y + 1, 0, GRID_SIZE - 1);
-  } else if (direction === "left") {
+  } else if (direction === 'left') {
     nextX = clamp(position.x - 1, 0, GRID_SIZE - 1);
-  } else if (direction === "right") {
+  } else if (direction === 'right') {
     nextX = clamp(position.x + 1, 0, GRID_SIZE - 1);
   }
 
@@ -198,7 +198,7 @@ function createPlayerState(player) {
   const y = normalizeCoord(player.y);
   return {
     id: player.id,
-    color: typeof player.color === "string" ? player.color : "#999999",
+    color: typeof player.color === 'string' ? player.color : '#999999',
     serverX: x,
     serverY: y,
     targetX: x,
@@ -211,7 +211,7 @@ function createPlayerState(player) {
 function ensurePlayerState(player) {
   const existing = playersById.get(player.id);
   if (existing) {
-    if (typeof player.color === "string") {
+    if (typeof player.color === 'string') {
       existing.color = player.color;
     }
     return existing;
@@ -258,7 +258,7 @@ function applySnapshot(nextPlayers) {
   const seen = new Set();
 
   for (const rawPlayer of nextPlayers) {
-    if (!rawPlayer || typeof rawPlayer.id !== "string") {
+    if (!rawPlayer || typeof rawPlayer.id !== 'string') {
       continue;
     }
 
@@ -266,7 +266,7 @@ function applySnapshot(nextPlayers) {
       id: rawPlayer.id,
       x: normalizeCoord(rawPlayer.x),
       y: normalizeCoord(rawPlayer.y),
-      color: typeof rawPlayer.color === "string" ? rawPlayer.color : "#999999",
+      color: typeof rawPlayer.color === 'string' ? rawPlayer.color : '#999999',
     };
     const state = ensurePlayerState(player);
     state.color = player.color;
@@ -281,8 +281,8 @@ function applySnapshot(nextPlayers) {
       state.targetX = player.x;
       state.targetY = player.y;
       if (
-        Math.abs(state.renderX - player.x) > SNAP_DISTANCE
-        || Math.abs(state.renderY - player.y) > SNAP_DISTANCE
+        Math.abs(state.renderX - player.x) > SNAP_DISTANCE ||
+        Math.abs(state.renderY - player.y) > SNAP_DISTANCE
       ) {
         state.renderX = player.x;
         state.renderY = player.y;
@@ -298,7 +298,7 @@ function applySnapshot(nextPlayers) {
 }
 
 function applyMoveEvent(payload) {
-  if (!payload || typeof payload.id !== "string") {
+  if (!payload || typeof payload.id !== 'string') {
     return;
   }
 
@@ -309,9 +309,9 @@ function applyMoveEvent(payload) {
     id: payload.id,
     x,
     y,
-    color: typeof payload.color === "string" ? payload.color : existing?.color || "#999999",
+    color: typeof payload.color === 'string' ? payload.color : existing?.color || '#999999',
   });
-  if (typeof payload.color === "string") {
+  if (typeof payload.color === 'string') {
     state.color = payload.color;
   }
   state.serverX = x;
@@ -331,7 +331,7 @@ function applyMoveEvent(payload) {
 }
 
 function applyJoinEvent(payload) {
-  if (!payload || typeof payload.id !== "string") {
+  if (!payload || typeof payload.id !== 'string') {
     return;
   }
 
@@ -341,12 +341,12 @@ function applyJoinEvent(payload) {
     id: payload.id,
     x,
     y,
-    color: typeof payload.color === "string" ? payload.color : "#999999",
+    color: typeof payload.color === 'string' ? payload.color : '#999999',
   });
 }
 
 function applyLeftEvent(payload) {
-  if (!payload || typeof payload.id !== "string") {
+  if (!payload || typeof payload.id !== 'string') {
     return;
   }
   playersById.delete(payload.id);
@@ -372,7 +372,7 @@ function queueMove(direction) {
   me.renderX = predicted.x;
   me.renderY = predicted.y;
 
-  socket.emit("move", { direction, seq });
+  socket.emit('move', { direction, seq });
 }
 
 function drawPlayersFrame() {
@@ -392,7 +392,7 @@ function drawPlayersFrame() {
     ctx.fillRect(player.renderX * CELL_SIZE, player.renderY * CELL_SIZE, CELL_SIZE, CELL_SIZE);
 
     if (player.id === myId) {
-      ctx.strokeStyle = "#111827";
+      ctx.strokeStyle = '#111827';
       ctx.lineWidth = 1;
       ctx.strokeRect(player.renderX * CELL_SIZE, player.renderY * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     }
@@ -401,7 +401,7 @@ function drawPlayersFrame() {
 
 function updateStatusText() {
   if (!readSession()) {
-    statusEl.textContent = "Bạn cần đăng nhập để chơi.";
+    statusEl.textContent = 'Bạn cần đăng nhập để chơi.';
     return;
   }
 
@@ -424,22 +424,22 @@ function renderFrame() {
 }
 
 function keyToDirection(key) {
-  if (key === "ArrowUp" || key === "w") {
-    return "up";
+  if (key === 'ArrowUp' || key === 'w') {
+    return 'up';
   }
-  if (key === "ArrowDown" || key === "s") {
-    return "down";
+  if (key === 'ArrowDown' || key === 's') {
+    return 'down';
   }
-  if (key === "ArrowLeft" || key === "a") {
-    return "left";
+  if (key === 'ArrowLeft' || key === 'a') {
+    return 'left';
   }
-  if (key === "ArrowRight" || key === "d") {
-    return "right";
+  if (key === 'ArrowRight' || key === 'd') {
+    return 'right';
   }
   return null;
 }
 
-window.addEventListener("keydown", (event) => {
+window.addEventListener('keydown', (event) => {
   if (!readSession()) {
     redirectToAuth();
     return;
@@ -456,14 +456,14 @@ window.addEventListener("keydown", (event) => {
   queueMove(direction);
 });
 
-window.addEventListener("storage", (event) => {
+window.addEventListener('storage', (event) => {
   if (event.key !== ACTIVE_SESSIONS_KEY) {
     return;
   }
 
   const session = readSession();
   if (!session) {
-    handleSessionConflict("Phiên đăng nhập đã bị thay đổi.", {
+    handleSessionConflict('Phiên đăng nhập đã bị thay đổi.', {
       logoutServer: false,
       releaseLock: false,
     });
@@ -471,13 +471,13 @@ window.addEventListener("storage", (event) => {
   }
 
   if (!ensureOwnedAccountLock(session)) {
-    handleSessionConflict("Tài khoản đang được sử dụng ở tab khác.", {
+    handleSessionConflict('Tài khoản đang được sử dụng ở tab khác.', {
       logoutServer: false,
     });
   }
 });
 
-window.addEventListener("beforeunload", () => {
+window.addEventListener('beforeunload', () => {
   const session = readSession();
   releaseOwnedAccountLock(session);
   if (socket.connected || socket.active) {
@@ -485,20 +485,20 @@ window.addEventListener("beforeunload", () => {
   }
 });
 
-socket.on("connect", () => {
+socket.on('connect', () => {
   myId = socket.id;
   pendingInputs = [];
   nextSeq = 1;
   myServerPos = null;
 });
 
-socket.on("disconnect", () => {
+socket.on('disconnect', () => {
   pendingInputs = [];
   myServerPos = null;
 });
 
-socket.on("moveAck", (ack) => {
-  if (!ack || typeof ack !== "object") {
+socket.on('moveAck', (ack) => {
+  if (!ack || typeof ack !== 'object') {
     return;
   }
 
@@ -516,30 +516,30 @@ socket.on("moveAck", (ack) => {
   reconcileLocalPrediction();
 });
 
-socket.on("updatePlayers", applySnapshot);
-socket.on("playerMoved", applyMoveEvent);
-socket.on("playerJoined", applyJoinEvent);
-socket.on("playerLeft", applyLeftEvent);
-socket.on("connect_error", (error) => {
-  if (String(error?.message || "").toLowerCase() === "unauthorized") {
-    handleSessionConflict("Phiên đăng nhập không hợp lệ.", {
+socket.on('updatePlayers', applySnapshot);
+socket.on('playerMoved', applyMoveEvent);
+socket.on('playerJoined', applyJoinEvent);
+socket.on('playerLeft', applyLeftEvent);
+socket.on('connect_error', (error) => {
+  if (String(error?.message || '').toLowerCase() === 'unauthorized') {
+    handleSessionConflict('Phiên đăng nhập không hợp lệ.', {
       logoutServer: false,
     });
     return;
   }
-  statusEl.textContent = "Kết nối tạm thời gián đoạn. Hệ thống đang tự kết nối lại...";
+  statusEl.textContent = 'Kết nối tạm thời gián đoạn. Hệ thống đang tự kết nối lại...';
 });
 
 async function bootstrapAuthAndConnect() {
   const initialSession = readSession();
   if (!initialSession) {
-    statusEl.textContent = "Bạn cần đăng nhập để vào game. Đang chuyển hướng...";
+    statusEl.textContent = 'Bạn cần đăng nhập để vào game. Đang chuyển hướng...';
     window.setTimeout(redirectToAuth, 150);
     return;
   }
 
   if (!ensureOwnedAccountLock(initialSession)) {
-    statusEl.textContent = "Tài khoản đang được sử dụng ở tab khác.";
+    statusEl.textContent = 'Tài khoản đang được sử dụng ở tab khác.';
     window.setTimeout(redirectToAuth, 300);
     return;
   }
@@ -547,11 +547,11 @@ async function bootstrapAuthAndConnect() {
   try {
     const me = await fetchAuthMe();
     if (!me || normalizeEmail(me.email) !== normalizeEmail(initialSession.email)) {
-      handleSessionConflict("Phiên đăng nhập đã hết hạn hoặc bị thay đổi.");
+      handleSessionConflict('Phiên đăng nhập đã hết hạn hoặc bị thay đổi.');
       return;
     }
   } catch {
-    statusEl.textContent = "Không thể xác thực tài khoản. Đang thử lại...";
+    statusEl.textContent = 'Không thể xác thực tài khoản. Đang thử lại...';
     window.setTimeout(() => {
       if (!redirectingToAuth) {
         bootstrapAuthAndConnect();

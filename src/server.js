@@ -1,27 +1,27 @@
-﻿const express = require("express");
-const http = require("http");
-const path = require("path");
-const crypto = require("crypto");
-const os = require("os");
-const { Server } = require("socket.io");
-const { createAdapter } = require("@socket.io/redis-adapter");
-const { createClient } = require("redis");
-const { MongoClient } = require("mongodb");
-const fs = require("fs");
+﻿const express = require('express');
+const http = require('http');
+const path = require('path');
+const crypto = require('crypto');
+const os = require('os');
+const { Server } = require('socket.io');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const { createClient } = require('redis');
+const { MongoClient } = require('mongodb');
+const fs = require('fs');
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) {
     return;
   }
 
-  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (!line || line.startsWith("#")) {
+    if (!line || line.startsWith('#')) {
       continue;
     }
 
-    const separatorIndex = line.indexOf("=");
+    const separatorIndex = line.indexOf('=');
     if (separatorIndex === -1) {
       continue;
     }
@@ -33,8 +33,8 @@ function loadEnvFile(filePath) {
 
     let value = line.slice(separatorIndex + 1).trim();
     if (
-      (value.startsWith("\"") && value.endsWith("\""))
-      || (value.startsWith("'") && value.endsWith("'"))
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
     ) {
       value = value.slice(1, -1);
     }
@@ -43,21 +43,21 @@ function loadEnvFile(filePath) {
   }
 }
 
-loadEnvFile(path.join(__dirname, "..", ".env"));
+loadEnvFile(path.join(__dirname, '..', '.env'));
 
-const packageJson = require(path.join(__dirname, "..", "package.json"));
+const packageJson = require(path.join(__dirname, '..', 'package.json'));
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  transports: ["websocket"],
+  transports: ['websocket'],
   pingInterval: Number(process.env.SOCKET_PING_INTERVAL_MS || 10000),
   pingTimeout: Number(process.env.SOCKET_PING_TIMEOUT_MS || 5000),
 });
 
 const PORT = Number(process.env.PORT || 3000);
-const ROOT_DIR = path.join(__dirname, "..");
-const PUBLIC_DIR = path.join(ROOT_DIR, "public");
+const ROOT_DIR = path.join(__dirname, '..');
+const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 const GRID_SIZE = 64;
 const MAX_SPAWN_ATTEMPTS = 500;
 const MOVE_INTERVAL_MS = Number(process.env.MOVE_INTERVAL_MS || 16);
@@ -66,41 +66,45 @@ const SNAPSHOT_INTERVAL_MS = Number(process.env.SNAPSHOT_INTERVAL_MS || 250);
 const GHOST_SWEEP_INTERVAL_MS = Number(process.env.GHOST_SWEEP_INTERVAL_MS || 15000);
 const AUTH_RELEASE_DELAY_MS = Number(process.env.AUTH_RELEASE_DELAY_MS || 12000);
 
-const ENABLE_REDIS = String(process.env.ENABLE_REDIS || "false") === "true";
-const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
-const REDIS_PLAYERS_KEY = process.env.REDIS_PLAYERS_KEY || "game64x64:players";
-const REDIS_CELLS_KEY = process.env.REDIS_CELLS_KEY || "game64x64:cells";
-const REDIS_USERS_KEY = process.env.REDIS_USERS_KEY || "game64x64:users";
-const REDIS_SESSION_PREFIX = process.env.REDIS_SESSION_PREFIX || "game64x64:session:";
-const REDIS_USER_SESSION_PREFIX = process.env.REDIS_USER_SESSION_PREFIX || "game64x64:user-session:";
-const MONGO_URL = process.env.MONGO_URL || "";
-const MONGO_DB_NAME = process.env.MONGO_DB_NAME || "game64x64";
-const STATS_TOKEN = process.env.STATS_TOKEN || "";
+const ENABLE_REDIS = String(process.env.ENABLE_REDIS || 'false') === 'true';
+const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+const REDIS_PLAYERS_KEY = process.env.REDIS_PLAYERS_KEY || 'game64x64:players';
+const REDIS_CELLS_KEY = process.env.REDIS_CELLS_KEY || 'game64x64:cells';
+const REDIS_USERS_KEY = process.env.REDIS_USERS_KEY || 'game64x64:users';
+const REDIS_SESSION_PREFIX = process.env.REDIS_SESSION_PREFIX || 'game64x64:session:';
+const REDIS_USER_SESSION_PREFIX =
+  process.env.REDIS_USER_SESSION_PREFIX || 'game64x64:user-session:';
+const MONGO_URL = process.env.MONGO_URL || '';
+const MONGO_DB_NAME = process.env.MONGO_DB_NAME || 'game64x64';
+const STATS_TOKEN = process.env.STATS_TOKEN || '';
 const STARTED_AT = new Date().toISOString();
-const APP_VERSION = String(process.env.APP_VERSION || packageJson.version || "0.0.0");
+const APP_VERSION = String(process.env.APP_VERSION || packageJson.version || '0.0.0');
 const NODE_ID = String(process.env.NODE_ID || os.hostname() || `node-${process.pid}`);
-const STRICT_CLUSTER_CONFIG = String(process.env.STRICT_CLUSTER_CONFIG || "true") === "true";
-const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "game64x64_session";
-const AUTH_COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || "false") === "true";
+const STRICT_CLUSTER_CONFIG = String(process.env.STRICT_CLUSTER_CONFIG || 'true') === 'true';
+const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'game64x64_session';
+const AUTH_COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || 'false') === 'true';
 const AUTH_SESSION_TTL_SEC = Number(process.env.AUTH_SESSION_TTL_SEC || 86400);
 const AUTH_LOGIN_FAIL_RATE_LIMIT_MAX = Number(process.env.AUTH_LOGIN_FAIL_RATE_LIMIT_MAX || 10);
-const AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC = Number(process.env.AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC || 300);
+const AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC = Number(
+  process.env.AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC || 300
+);
 const AUTH_REGISTER_RATE_LIMIT_MAX = Number(process.env.AUTH_REGISTER_RATE_LIMIT_MAX || 15);
-const AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC = Number(process.env.AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC || 600);
-const AUTH_REQUIRE_MONGO = String(process.env.AUTH_REQUIRE_MONGO || "false") === "true";
-const AUTH_REJECT_CONCURRENT = String(process.env.AUTH_REJECT_CONCURRENT || "true") === "true";
-const AUTH_SEED_TEST_USERS = String(process.env.AUTH_SEED_TEST_USERS || "true") === "true";
-const AUTH_ALLOW_CONCURRENT_SEED_USERS = String(
-  process.env.AUTH_ALLOW_CONCURRENT_SEED_USERS || "true",
-) === "true";
-const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED || "true") === "true";
+const AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC = Number(
+  process.env.AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC || 600
+);
+const AUTH_REQUIRE_MONGO = String(process.env.AUTH_REQUIRE_MONGO || 'false') === 'true';
+const AUTH_REJECT_CONCURRENT = String(process.env.AUTH_REJECT_CONCURRENT || 'true') === 'true';
+const AUTH_SEED_TEST_USERS = String(process.env.AUTH_SEED_TEST_USERS || 'true') === 'true';
+const AUTH_ALLOW_CONCURRENT_SEED_USERS =
+  String(process.env.AUTH_ALLOW_CONCURRENT_SEED_USERS || 'true') === 'true';
+const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED || 'true') === 'true';
 const AUTH_DEFAULT_PASSWORD_MIN = 6;
 const AUTH_DEFAULT_NAME_MAX = 24;
 const AUTH_DEFAULT_NAME_MIN = 2;
 
 const players = new Map();
 const lastMoveAt = new Map();
-const VALID_DIRECTIONS = new Set(["up", "down", "left", "right"]);
+const VALID_DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
 const usersByEmail = new Map();
 const usersById = new Map();
 const sessionsByToken = new Map();
@@ -109,11 +113,11 @@ const authRateLimitStore = new Map();
 const pendingSessionReleaseTimers = new Map();
 
 const TEST_USERS_SEED = [
-  { name: "Tài khoản kiểm thử 01", email: "tester01@example.com", password: "Test123!" },
-  { name: "Tài khoản kiểm thử 02", email: "tester02@example.com", password: "Test123!" },
-  { name: "Tài khoản kiểm thử 03", email: "tester03@example.com", password: "Test123!" },
-  { name: "Tài khoản kiểm thử 04", email: "tester04@example.com", password: "Test123!" },
-  { name: "Tài khoản kiểm thử 05", email: "tester05@example.com", password: "Test123!" },
+  { name: 'Tài khoản kiểm thử 01', email: 'tester01@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 02', email: 'tester02@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 03', email: 'tester03@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 04', email: 'tester04@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 05', email: 'tester05@example.com', password: 'Test123!' },
 ];
 const TEST_USERS_SEED_EMAILS = new Set(TEST_USERS_SEED.map((seed) => normalizeEmail(seed.email)));
 
@@ -146,7 +150,9 @@ function randomInt(maxExclusive) {
 }
 
 function randomColor() {
-  return `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")}`;
+  return `#${Math.floor(Math.random() * 0xffffff)
+    .toString(16)
+    .padStart(6, '0')}`;
 }
 
 function toCellKey(x, y) {
@@ -172,11 +178,15 @@ function normalizeCoord(value, max) {
 }
 
 function normalizeEmail(value) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase();
 }
 
 function normalizeDisplayName(value) {
-  const compact = String(value || "").trim().replace(/\s+/g, " ");
+  const compact = String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ');
   return compact.slice(0, AUTH_DEFAULT_NAME_MAX);
 }
 
@@ -185,24 +195,24 @@ function isValidEmail(email) {
 }
 
 function randomId(bytes = 16) {
-  return crypto.randomBytes(bytes).toString("hex");
+  return crypto.randomBytes(bytes).toString('hex');
 }
 
 function hashPassword(plainPassword) {
   const salt = randomId(16);
-  const hashed = crypto.scryptSync(String(plainPassword), salt, 64).toString("hex");
+  const hashed = crypto.scryptSync(String(plainPassword), salt, 64).toString('hex');
   return `scrypt:${salt}:${hashed}`;
 }
 
 function verifyPassword(plainPassword, stored) {
-  const raw = String(stored || "");
-  const parts = raw.split(":");
-  if (parts.length !== 3 || parts[0] !== "scrypt") {
+  const raw = String(stored || '');
+  const parts = raw.split(':');
+  if (parts.length !== 3 || parts[0] !== 'scrypt') {
     return false;
   }
 
   const [, salt, expectedHex] = parts;
-  const expected = Buffer.from(expectedHex, "hex");
+  const expected = Buffer.from(expectedHex, 'hex');
   const actual = crypto.scryptSync(String(plainPassword), salt, expected.length);
   if (actual.length !== expected.length) {
     return false;
@@ -211,8 +221,8 @@ function verifyPassword(plainPassword, stored) {
 }
 
 function cookieSerialize(name, value, maxAgeSec, clear = false) {
-  const base = `${name}=${clear ? "" : encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax`;
-  const secure = AUTH_COOKIE_SECURE ? "; Secure" : "";
+  const base = `${name}=${clear ? '' : encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax`;
+  const secure = AUTH_COOKIE_SECURE ? '; Secure' : '';
   if (clear) {
     return `${base}; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${secure}`;
   }
@@ -221,36 +231,36 @@ function cookieSerialize(name, value, maxAgeSec, clear = false) {
 
 function parseCookies(cookieHeader) {
   const parsed = {};
-  const raw = String(cookieHeader || "");
+  const raw = String(cookieHeader || '');
   if (!raw) {
     return parsed;
   }
 
-  for (const part of raw.split(";")) {
-    const [name, ...rest] = part.trim().split("=");
+  for (const part of raw.split(';')) {
+    const [name, ...rest] = part.trim().split('=');
     if (!name) {
       continue;
     }
-    parsed[name] = decodeURIComponent(rest.join("=") || "");
+    parsed[name] = decodeURIComponent(rest.join('=') || '');
   }
   return parsed;
 }
 
 function normalizeIp(value) {
-  const raw = String(value || "").trim();
+  const raw = String(value || '').trim();
   if (!raw) {
-    return "unknown";
+    return 'unknown';
   }
-  if (raw.startsWith("::ffff:")) {
+  if (raw.startsWith('::ffff:')) {
     return raw.slice(7);
   }
   return raw;
 }
 
 function getRequestIp(req) {
-  const forwarded = String(req.get("x-forwarded-for") || "").trim();
+  const forwarded = String(req.get('x-forwarded-for') || '').trim();
   if (forwarded) {
-    const first = forwarded.split(",")[0];
+    const first = forwarded.split(',')[0];
     return normalizeIp(first);
   }
   return normalizeIp(req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress);
@@ -280,11 +290,11 @@ function parseAuthUser(raw) {
   try {
     const parsed = JSON.parse(raw);
     if (
-      !parsed
-      || typeof parsed.id !== "string"
-      || typeof parsed.email !== "string"
-      || typeof parsed.name !== "string"
-      || typeof parsed.passwordHash !== "string"
+      !parsed ||
+      typeof parsed.id !== 'string' ||
+      typeof parsed.email !== 'string' ||
+      typeof parsed.name !== 'string' ||
+      typeof parsed.passwordHash !== 'string'
     ) {
       return null;
     }
@@ -304,12 +314,12 @@ function parseAuthSession(raw) {
   try {
     const parsed = JSON.parse(raw);
     if (
-      !parsed
-      || typeof parsed.token !== "string"
-      || typeof parsed.userId !== "string"
-      || typeof parsed.email !== "string"
-      || typeof parsed.name !== "string"
-      || !Number.isInteger(parsed.expiresAt)
+      !parsed ||
+      typeof parsed.token !== 'string' ||
+      typeof parsed.userId !== 'string' ||
+      typeof parsed.email !== 'string' ||
+      typeof parsed.name !== 'string' ||
+      !Number.isInteger(parsed.expiresAt)
     ) {
       return null;
     }
@@ -324,19 +334,23 @@ function isMongoEnabled() {
 }
 
 function isLoopbackHost(hostname) {
-  const raw = String(hostname || "").trim().toLowerCase();
+  const raw = String(hostname || '')
+    .trim()
+    .toLowerCase();
   if (!raw) {
     return false;
   }
-  return raw === "localhost"
-    || raw === "::1"
-    || raw === "[::1]"
-    || raw === "127.0.0.1"
-    || raw.startsWith("127.");
+  return (
+    raw === 'localhost' ||
+    raw === '::1' ||
+    raw === '[::1]' ||
+    raw === '127.0.0.1' ||
+    raw.startsWith('127.')
+  );
 }
 
 function getMongoHosts(mongoUrl) {
-  const raw = String(mongoUrl || "").trim();
+  const raw = String(mongoUrl || '').trim();
   if (!raw) {
     return [];
   }
@@ -347,20 +361,18 @@ function getMongoHosts(mongoUrl) {
   }
 
   const authority = match[1];
-  const hostList = authority.includes("@")
-    ? authority.split("@").slice(-1)[0]
-    : authority;
+  const hostList = authority.includes('@') ? authority.split('@').slice(-1)[0] : authority;
 
   return hostList
-    .split(",")
-    .map((entry) => String(entry || "").trim())
+    .split(',')
+    .map((entry) => String(entry || '').trim())
     .filter(Boolean)
     .map((entry) => {
-      if (entry.startsWith("[")) {
-        const closingIndex = entry.indexOf("]");
+      if (entry.startsWith('[')) {
+        const closingIndex = entry.indexOf(']');
         return closingIndex >= 0 ? entry.slice(1, closingIndex) : entry;
       }
-      return entry.split(":")[0];
+      return entry.split(':')[0];
     });
 }
 
@@ -380,43 +392,43 @@ function isLoopbackRedisUrl(redisUrl) {
 function getConfigWarnings() {
   const warnings = [];
   if (ENABLE_REDIS && isLoopbackRedisUrl(REDIS_URL)) {
-    warnings.push("Redis is enabled but REDIS_URL points to a loopback host.");
+    warnings.push('Redis is enabled but REDIS_URL points to a loopback host.');
   }
   if (ENABLE_REDIS && AUTH_REQUIRE_MONGO && isLoopbackMongoUrl(MONGO_URL)) {
-    warnings.push("Cluster mode is enabled but MONGO_URL points to a loopback host.");
+    warnings.push('Cluster mode is enabled but MONGO_URL points to a loopback host.');
   }
   if (AUTH_REQUIRE_MONGO && !MONGO_URL) {
-    warnings.push("AUTH_REQUIRE_MONGO is true but MONGO_URL is empty.");
+    warnings.push('AUTH_REQUIRE_MONGO is true but MONGO_URL is empty.');
   }
   return warnings;
 }
 
 function getConfigFatalErrors() {
-  if (!STRICT_CLUSTER_CONFIG || process.env.NODE_ENV !== "production") {
+  if (!STRICT_CLUSTER_CONFIG || process.env.NODE_ENV !== 'production') {
     return [];
   }
 
   const errors = [];
   if (ENABLE_REDIS && isLoopbackRedisUrl(REDIS_URL)) {
-    errors.push("Cluster mode in production cannot use a loopback REDIS_URL.");
+    errors.push('Cluster mode in production cannot use a loopback REDIS_URL.');
   }
   if (ENABLE_REDIS && AUTH_REQUIRE_MONGO && isLoopbackMongoUrl(MONGO_URL)) {
-    errors.push("Cluster mode in production cannot use a loopback MONGO_URL.");
+    errors.push('Cluster mode in production cannot use a loopback MONGO_URL.');
   }
   if (AUTH_REQUIRE_MONGO && !MONGO_URL) {
-    errors.push("Production auth requires MONGO_URL when AUTH_REQUIRE_MONGO=true.");
+    errors.push('Production auth requires MONGO_URL when AUTH_REQUIRE_MONGO=true.');
   }
   return errors;
 }
 
 function getAuthStorageMode() {
   if (mongoUsers) {
-    return "mongo";
+    return 'mongo';
   }
   if (redisDataClient) {
-    return "redis";
+    return 'redis';
   }
-  return "memory";
+  return 'memory';
 }
 
 function isDuplicateAuthUserError(error) {
@@ -480,7 +492,7 @@ function getAuthRateLimitMemoryState(cacheKey, windowSec) {
     }
     return {
       count: 0,
-      resetAt: now + (windowSec * 1000),
+      resetAt: now + windowSec * 1000,
     };
   }
   return current;
@@ -540,7 +552,7 @@ async function clearAuthRateLimit(scope, key) {
 }
 
 function setRetryAfter(res, retryAfterSec) {
-  res.setHeader("Retry-After", String(Math.max(1, Number(retryAfterSec) || 1)));
+  res.setHeader('Retry-After', String(Math.max(1, Number(retryAfterSec) || 1)));
 }
 
 async function getUserByEmail(email) {
@@ -602,7 +614,7 @@ async function createUser(user) {
       return { ok: true, user: next };
     } catch (error) {
       if (isDuplicateAuthUserError(error)) {
-        return { ok: false, reason: "exists" };
+        return { ok: false, reason: 'exists' };
       }
       throw error;
     }
@@ -610,7 +622,7 @@ async function createUser(user) {
 
   if (!redisDataClient) {
     if (usersByEmail.has(next.email)) {
-      return { ok: false, reason: "exists" };
+      return { ok: false, reason: 'exists' };
     }
     usersByEmail.set(next.email, next);
     usersById.set(next.id, next);
@@ -619,42 +631,9 @@ async function createUser(user) {
 
   const saved = await redisDataClient.hSetNX(REDIS_USERS_KEY, next.email, JSON.stringify(next));
   if (!saved) {
-    return { ok: false, reason: "exists" };
+    return { ok: false, reason: 'exists' };
   }
   return { ok: true, user: next };
-}
-
-async function saveUser(user) {
-  if (mongoUsers) {
-    const next = {
-      ...user,
-      email: normalizeEmail(user.email),
-    };
-    await mongoUsers.updateOne(
-      { email: next.email },
-      { $set: next },
-      { upsert: true },
-    );
-    return;
-  }
-
-  if (!redisDataClient) {
-    const next = {
-      ...user,
-      email: normalizeEmail(user.email),
-      name: normalizeDisplayName(user.name),
-    };
-    usersByEmail.set(next.email, next);
-    usersById.set(next.id, next);
-    return;
-  }
-
-  const next = {
-    ...user,
-    email: normalizeEmail(user.email),
-    name: normalizeDisplayName(user.name),
-  };
-  await redisDataClient.hSet(REDIS_USERS_KEY, next.email, JSON.stringify(next));
 }
 
 async function getUserSessionToken(userId) {
@@ -664,7 +643,7 @@ async function getUserSessionToken(userId) {
   if (mongoSessions) {
     const doc = await mongoSessions.findOne(
       { userId, expiresAt: { $gt: Date.now() } },
-      { sort: { expiresAt: -1 } },
+      { sort: { expiresAt: -1 } }
     );
     return doc ? doc.token : null;
   }
@@ -761,11 +740,7 @@ async function saveSession(session) {
       ...session,
       expiresAtDate: new Date(session.expiresAt),
     };
-    await mongoSessions.updateOne(
-      { token: session.token },
-      { $set: next },
-      { upsert: true },
-    );
+    await mongoSessions.updateOne({ token: session.token }, { $set: next }, { upsert: true });
     return;
   }
 
@@ -778,12 +753,12 @@ async function saveSession(session) {
   await redisDataClient.setEx(
     redisSessionKey(session.token),
     AUTH_SESSION_TTL_SEC,
-    JSON.stringify(session),
+    JSON.stringify(session)
   );
   await redisDataClient.setEx(
     redisUserSessionKey(session.userId),
     AUTH_SESSION_TTL_SEC,
-    session.token,
+    session.token
   );
 }
 
@@ -791,7 +766,7 @@ async function refreshSession(session) {
   const next = {
     ...session,
     lastSeenAt: Date.now(),
-    expiresAt: Date.now() + (AUTH_SESSION_TTL_SEC * 1000),
+    expiresAt: Date.now() + AUTH_SESSION_TTL_SEC * 1000,
   };
   await saveSession(next);
   return next;
@@ -849,7 +824,7 @@ function scheduleSessionRelease(userId, token) {
       await releaseSessionIfOffline(userId, token);
     } catch (error) {
       stats.errorsTotal += 1;
-      console.error("[auth-release] failed:", error);
+      console.error('[auth-release] failed:', error);
     } finally {
       pendingSessionReleaseTimers.delete(userId);
     }
@@ -861,7 +836,7 @@ function scheduleSessionRelease(userId, token) {
   }
 
   const timer = setTimeout(run, AUTH_RELEASE_DELAY_MS);
-  if (typeof timer.unref === "function") {
+  if (typeof timer.unref === 'function') {
     timer.unref();
   }
   pendingSessionReleaseTimers.set(userId, timer);
@@ -869,10 +844,8 @@ function scheduleSessionRelease(userId, token) {
 
 async function createSessionForUser(user, options = {}) {
   const forceExistingSession = options.forceExistingSession === true;
-  const allowConcurrentSeedSession = (
-    AUTH_ALLOW_CONCURRENT_SEED_USERS
-    && TEST_USERS_SEED_EMAILS.has(normalizeEmail(user?.email))
-  );
+  const allowConcurrentSeedSession =
+    AUTH_ALLOW_CONCURRENT_SEED_USERS && TEST_USERS_SEED_EMAILS.has(normalizeEmail(user?.email));
   const existingToken = allowConcurrentSeedSession ? null : await getUserSessionToken(user.id);
   if (existingToken) {
     const existing = await getSessionByToken(existingToken);
@@ -880,7 +853,7 @@ async function createSessionForUser(user, options = {}) {
       if (AUTH_REJECT_CONCURRENT && !forceExistingSession) {
         const active = await hasActiveSocketForUser(existing.userId);
         if (active) {
-          return { ok: false, reason: "already_online" };
+          return { ok: false, reason: 'already_online' };
         }
       }
       await deleteSession(existingToken, existing);
@@ -894,7 +867,7 @@ async function createSessionForUser(user, options = {}) {
     name: user.name,
     createdAt: Date.now(),
     lastSeenAt: Date.now(),
-    expiresAt: Date.now() + (AUTH_SESSION_TTL_SEC * 1000),
+    expiresAt: Date.now() + AUTH_SESSION_TTL_SEC * 1000,
   };
   await saveSession(session);
   return { ok: true, session };
@@ -913,9 +886,8 @@ async function ensureSeedUsers() {
       passwordHash: hashPassword(seed.password),
       createdAt: new Date().toISOString(),
     };
-    // eslint-disable-next-line no-await-in-loop
     const created = await createUser(user);
-    if (!created.ok && created.reason !== "exists") {
+    if (!created.ok && created.reason !== 'exists') {
       throw new Error(`Failed to seed auth user for ${seed.email}`);
     }
   }
@@ -924,14 +896,14 @@ async function ensureSeedUsers() {
 function parsePlayer(raw) {
   try {
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.id !== "string") {
+    if (!parsed || typeof parsed.id !== 'string') {
       return null;
     }
     return {
       id: parsed.id,
       x: clamp(Number(parsed.x), 0, GRID_SIZE - 1),
       y: clamp(Number(parsed.y), 0, GRID_SIZE - 1),
-      color: typeof parsed.color === "string" ? parsed.color : "#999999",
+      color: typeof parsed.color === 'string' ? parsed.color : '#999999',
     };
   } catch (_error) {
     return null;
@@ -940,7 +912,7 @@ function parsePlayer(raw) {
 
 async function connectRedisIfEnabled() {
   if (!ENABLE_REDIS) {
-    console.log("[startup] Redis disabled. Using in-memory player store.");
+    console.log('[startup] Redis disabled. Using in-memory player store.');
     return;
   }
 
@@ -967,8 +939,8 @@ async function connectMongoIfEnabled() {
   mongoClient = new MongoClient(MONGO_URL, { maxPoolSize: 10 });
   await mongoClient.connect();
   mongoDb = mongoClient.db(MONGO_DB_NAME);
-  mongoUsers = mongoDb.collection("users");
-  mongoSessions = mongoDb.collection("sessions");
+  mongoUsers = mongoDb.collection('users');
+  mongoSessions = mongoDb.collection('sessions');
 
   await Promise.all([
     mongoUsers.createIndex({ email: 1 }, { unique: true }),
@@ -978,7 +950,7 @@ async function connectMongoIfEnabled() {
     mongoSessions.createIndex({ expiresAtDate: 1 }, { expireAfterSeconds: 0 }),
   ]);
 
-  console.log("[startup] MongoDB enabled for auth storage.");
+  console.log('[startup] MongoDB enabled for auth storage.');
 }
 
 async function getPlayersList() {
@@ -1043,7 +1015,7 @@ async function removePlayer(id) {
       redis.call('HDEL', playersKey, playerId)
       return 1
     `,
-    { keys: [REDIS_PLAYERS_KEY, REDIS_CELLS_KEY], arguments: [id] },
+    { keys: [REDIS_PLAYERS_KEY, REDIS_CELLS_KEY], arguments: [id] }
   );
 }
 
@@ -1057,7 +1029,6 @@ async function findSpawnPosition() {
     const x = randomInt(GRID_SIZE);
     const y = randomInt(GRID_SIZE);
 
-    // eslint-disable-next-line no-await-in-loop
     if (!(await isOccupied(x, y))) {
       return { x, y };
     }
@@ -1065,7 +1036,6 @@ async function findSpawnPosition() {
 
   for (let y = 0; y < GRID_SIZE; y += 1) {
     for (let x = 0; x < GRID_SIZE; x += 1) {
-      // eslint-disable-next-line no-await-in-loop
       if (!(await isOccupied(x, y))) {
         return { x, y };
       }
@@ -1129,7 +1099,6 @@ async function sweepGhostPlayers() {
 
     for (const player of list) {
       if (!activeSocketIds.has(player.id)) {
-        // eslint-disable-next-line no-await-in-loop
         await removePlayer(player.id);
         lastMoveAt.delete(player.id);
         emitPlayerLeft(player.id);
@@ -1143,7 +1112,7 @@ async function sweepGhostPlayers() {
     }
   } catch (error) {
     stats.errorsTotal += 1;
-    console.error("[reconcile] failed:", error);
+    console.error('[reconcile] failed:', error);
   }
 }
 
@@ -1184,7 +1153,7 @@ async function spawnPlayerRedis(playerId) {
       {
         keys: [REDIS_PLAYERS_KEY, REDIS_CELLS_KEY],
         arguments: [playerId, String(x), String(y), color],
-      },
+      }
     );
 
     if (claimed === 1) {
@@ -1194,7 +1163,6 @@ async function spawnPlayerRedis(playerId) {
 
   for (let y = 0; y < GRID_SIZE; y += 1) {
     for (let x = 0; x < GRID_SIZE; x += 1) {
-      // eslint-disable-next-line no-await-in-loop
       const claimed = await redisDataClient.eval(
         `
           local playersKey = KEYS[1]
@@ -1221,7 +1189,7 @@ async function spawnPlayerRedis(playerId) {
         {
           keys: [REDIS_PLAYERS_KEY, REDIS_CELLS_KEY],
           arguments: [playerId, String(x), String(y), color],
-        },
+        }
       );
 
       if (claimed === 1) {
@@ -1239,17 +1207,17 @@ async function spawnPlayerRedis(playerId) {
 
 async function movePlayerRedis(playerId, direction) {
   if (!redisDataClient) {
-    return { state: "missing" };
+    return { state: 'missing' };
   }
 
   const current = await getPlayerById(playerId);
   if (!current) {
-    return { state: "missing" };
+    return { state: 'missing' };
   }
 
   const next = getNextPosition(current, direction);
   if (next.x === current.x && next.y === current.y) {
-    return { state: "applied" };
+    return { state: 'applied' };
   }
 
   const moved = await redisDataClient.eval(
@@ -1290,30 +1258,30 @@ async function movePlayerRedis(playerId, direction) {
     {
       keys: [REDIS_PLAYERS_KEY, REDIS_CELLS_KEY],
       arguments: [playerId, String(next.x), String(next.y)],
-    },
+    }
   );
 
   if (moved === 1 || moved === 2) {
     const updated = await getPlayerById(playerId);
     if (!updated) {
-      return { state: "missing" };
+      return { state: 'missing' };
     }
-    return { state: "applied", player: updated };
+    return { state: 'applied', player: updated };
   }
   if (moved === 0) {
-    return { state: "occupied" };
+    return { state: 'occupied' };
   }
-  return { state: "missing" };
+  return { state: 'missing' };
 }
 
 async function movePlayerTo(playerId, x, y) {
   const player = await getPlayerById(playerId);
   if (!player) {
-    return { ok: false, reason: "missing_player" };
+    return { ok: false, reason: 'missing_player' };
   }
 
   if (await isOccupied(x, y, playerId)) {
-    return { ok: false, reason: "occupied", player };
+    return { ok: false, reason: 'occupied', player };
   }
 
   const next = {
@@ -1343,13 +1311,13 @@ function getNextPosition(player, direction) {
   let nextX = player.x;
   let nextY = player.y;
 
-  if (direction === "up") {
+  if (direction === 'up') {
     nextY = clamp(player.y - 1, 0, GRID_SIZE - 1);
-  } else if (direction === "down") {
+  } else if (direction === 'down') {
     nextY = clamp(player.y + 1, 0, GRID_SIZE - 1);
-  } else if (direction === "left") {
+  } else if (direction === 'left') {
     nextX = clamp(player.x - 1, 0, GRID_SIZE - 1);
-  } else if (direction === "right") {
+  } else if (direction === 'right') {
     nextX = clamp(player.x + 1, 0, GRID_SIZE - 1);
   }
 
@@ -1358,12 +1326,12 @@ function getNextPosition(player, direction) {
 
 async function emitPlayersNow() {
   const list = await getPlayersList();
-  io.emit("updatePlayers", list);
+  io.emit('updatePlayers', list);
   stats.broadcastsEmitted += 1;
 }
 
 function emitMoveAck(socket, seq, ok, reason, player = null) {
-  socket.emit("moveAck", {
+  socket.emit('moveAck', {
     seq,
     ok,
     reason: reason || null,
@@ -1377,7 +1345,7 @@ function emitPlayerMoved(player, seq) {
     return;
   }
 
-  io.emit("playerMoved", {
+  io.emit('playerMoved', {
     id: player.id,
     x: player.x,
     y: player.y,
@@ -1392,11 +1360,11 @@ function emitPlayerJoined(player) {
     return;
   }
 
-  io.emit("playerJoined", player);
+  io.emit('playerJoined', player);
 }
 
 function emitPlayerLeft(playerId) {
-  io.emit("playerLeft", { id: playerId });
+  io.emit('playerLeft', { id: playerId });
 }
 
 function scheduleEmitPlayers() {
@@ -1416,7 +1384,7 @@ function scheduleEmitPlayers() {
       await emitPlayersNow();
     } catch (error) {
       stats.errorsTotal += 1;
-      console.error("[broadcast] failed:", error);
+      console.error('[broadcast] failed:', error);
     } finally {
       broadcastInFlight = false;
       if (broadcastPending) {
@@ -1439,7 +1407,7 @@ function getStatsSnapshot(playersCount) {
     mongoConnected: Boolean(mongoUsers),
     configWarnings: getConfigWarnings(),
     playersOnline: playersCount,
-    socketsOnline: io.of("/").sockets.size,
+    socketsOnline: io.of('/').sockets.size,
     counters: { ...stats },
   };
 }
@@ -1448,15 +1416,18 @@ function isStatsAuthorized(req) {
   if (!STATS_TOKEN) {
     return true;
   }
-  return req.get("x-stats-token") === STATS_TOKEN;
+  return req.get('x-stats-token') === STATS_TOKEN;
 }
 
 function setAuthCookie(res, token) {
-  res.setHeader("Set-Cookie", cookieSerialize(AUTH_COOKIE_NAME, token, AUTH_SESSION_TTL_SEC, false));
+  res.setHeader(
+    'Set-Cookie',
+    cookieSerialize(AUTH_COOKIE_NAME, token, AUTH_SESSION_TTL_SEC, false)
+  );
 }
 
 function clearAuthCookie(res) {
-  res.setHeader("Set-Cookie", cookieSerialize(AUTH_COOKIE_NAME, "", 0, true));
+  res.setHeader('Set-Cookie', cookieSerialize(AUTH_COOKIE_NAME, '', 0, true));
 }
 
 async function getAuthenticatedUserFromRequest(req) {
@@ -1480,70 +1451,70 @@ async function getAuthenticatedUserFromRequest(req) {
   return { token, session: refreshed, user };
 }
 
-app.use(express.json({ limit: "32kb" }));
+app.use(express.json({ limit: '32kb' }));
 app.use((req, res, next) => {
-  const route = String(req.path || "").toLowerCase();
-  if (route.endsWith(".html") || route === "/" || route === "/auth" || route === "/game") {
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
+  const route = String(req.path || '').toLowerCase();
+  if (route.endsWith('.html') || route === '/' || route === '/auth' || route === '/game') {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
   }
   next();
 });
-app.get("/", (_req, res) => {
-  res.redirect(302, "/auth.html");
+app.get('/', (_req, res) => {
+  res.redirect(302, '/auth.html');
 });
-app.get("/index.html", (_req, res) => {
-  res.redirect(302, "/auth.html");
+app.get('/index.html', (_req, res) => {
+  res.redirect(302, '/auth.html');
 });
 app.use(express.static(PUBLIC_DIR));
 
-app.post("/api/auth/register", async (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const clientIp = getRequestIp(req);
   const registerRateKey = clientIp;
   if (AUTH_REGISTER_RATE_LIMIT_MAX > 0) {
     const currentLimit = await getAuthRateLimitState(
-      "register",
+      'register',
       registerRateKey,
-      AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC,
+      AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC
     );
     if (currentLimit.count >= AUTH_REGISTER_RATE_LIMIT_MAX) {
       setRetryAfter(res, currentLimit.retryAfterSec);
-      res.status(429).json({ ok: false, message: "Too many register attempts" });
+      res.status(429).json({ ok: false, message: 'Too many register attempts' });
       return;
     }
   }
 
   const name = normalizeDisplayName(req.body?.name);
   const email = normalizeEmail(req.body?.email);
-  const password = String(req.body?.password || "");
+  const password = String(req.body?.password || '');
 
   if (
-    !name
-    || name.length < AUTH_DEFAULT_NAME_MIN
-    || !isValidEmail(email)
-    || password.length < AUTH_DEFAULT_PASSWORD_MIN
+    !name ||
+    name.length < AUTH_DEFAULT_NAME_MIN ||
+    !isValidEmail(email) ||
+    password.length < AUTH_DEFAULT_PASSWORD_MIN
   ) {
-    res.status(400).json({ ok: false, message: "Invalid register payload" });
+    res.status(400).json({ ok: false, message: 'Invalid register payload' });
     return;
   }
 
   if (AUTH_REGISTER_RATE_LIMIT_MAX > 0) {
     const nextLimit = await incrementAuthRateLimit(
-      "register",
+      'register',
       registerRateKey,
-      AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC,
+      AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC
     );
     if (nextLimit.count > AUTH_REGISTER_RATE_LIMIT_MAX) {
       setRetryAfter(res, nextLimit.retryAfterSec);
-      res.status(429).json({ ok: false, message: "Too many register attempts" });
+      res.status(429).json({ ok: false, message: 'Too many register attempts' });
       return;
     }
   }
 
   const existing = await getUserByEmail(email);
   if (existing) {
-    res.status(409).json({ ok: false, message: "Email already registered" });
+    res.status(409).json({ ok: false, message: 'Email already registered' });
     return;
   }
 
@@ -1556,7 +1527,7 @@ app.post("/api/auth/register", async (req, res) => {
   };
   const createdUser = await createUser(user);
   if (!createdUser.ok) {
-    res.status(409).json({ ok: false, message: "Email already registered" });
+    res.status(409).json({ ok: false, message: 'Email already registered' });
     return;
   }
 
@@ -1570,26 +1541,26 @@ app.post("/api/auth/register", async (req, res) => {
   res.status(201).json({ ok: true, user: toPublicUser(createdUser.user) });
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const clientIp = getRequestIp(req);
   const email = normalizeEmail(req.body?.email);
-  const password = String(req.body?.password || "");
+  const password = String(req.body?.password || '');
   const forceFromClient = req.body?.force === true;
-  const loginRateKey = `${clientIp}:${email || "unknown"}`;
+  const loginRateKey = `${clientIp}:${email || 'unknown'}`;
   if (!isValidEmail(email) || !password) {
-    res.status(400).json({ ok: false, message: "Invalid login payload" });
+    res.status(400).json({ ok: false, message: 'Invalid login payload' });
     return;
   }
 
   if (AUTH_LOGIN_FAIL_RATE_LIMIT_MAX > 0) {
     const currentLimit = await getAuthRateLimitState(
-      "login-fail",
+      'login-fail',
       loginRateKey,
-      AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC,
+      AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC
     );
     if (currentLimit.count >= AUTH_LOGIN_FAIL_RATE_LIMIT_MAX) {
       setRetryAfter(res, currentLimit.retryAfterSec);
-      res.status(429).json({ ok: false, message: "Too many login attempts" });
+      res.status(429).json({ ok: false, message: 'Too many login attempts' });
       return;
     }
   }
@@ -1598,21 +1569,21 @@ app.post("/api/auth/login", async (req, res) => {
   if (!user || !verifyPassword(password, user.passwordHash)) {
     if (AUTH_LOGIN_FAIL_RATE_LIMIT_MAX > 0) {
       const nextLimit = await incrementAuthRateLimit(
-        "login-fail",
+        'login-fail',
         loginRateKey,
-        AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC,
+        AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC
       );
       if (nextLimit.count >= AUTH_LOGIN_FAIL_RATE_LIMIT_MAX) {
         setRetryAfter(res, nextLimit.retryAfterSec);
-        res.status(429).json({ ok: false, message: "Too many login attempts" });
+        res.status(429).json({ ok: false, message: 'Too many login attempts' });
         return;
       }
     }
-    res.status(401).json({ ok: false, message: "Invalid credentials" });
+    res.status(401).json({ ok: false, message: 'Invalid credentials' });
     return;
   }
 
-  await clearAuthRateLimit("login-fail", loginRateKey);
+  await clearAuthRateLimit('login-fail', loginRateKey);
 
   const forceExistingSession = forceFromClient || TEST_USERS_SEED_EMAILS.has(email);
   const created = await createSessionForUser(user, { forceExistingSession });
@@ -1625,7 +1596,7 @@ app.post("/api/auth/login", async (req, res) => {
   res.json({ ok: true, user: toPublicUser(user) });
 });
 
-app.post("/api/auth/logout", async (req, res) => {
+app.post('/api/auth/logout', async (req, res) => {
   const token = getAuthTokenFromRequest(req);
   if (token) {
     const session = await getSessionByToken(token);
@@ -1635,11 +1606,11 @@ app.post("/api/auth/logout", async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/auth/me", async (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
   const auth = await getAuthenticatedUserFromRequest(req);
   if (!auth) {
     clearAuthCookie(res);
-    res.status(401).json({ ok: false, message: "Unauthorized" });
+    res.status(401).json({ ok: false, message: 'Unauthorized' });
     return;
   }
 
@@ -1666,7 +1637,7 @@ async function handleHealth(_req, res) {
 
 async function handleStats(req, res) {
   if (!isStatsAuthorized(req)) {
-    res.status(401).json({ ok: false, message: "Unauthorized" });
+    res.status(401).json({ ok: false, message: 'Unauthorized' });
     return;
   }
 
@@ -1677,17 +1648,17 @@ async function handleStats(req, res) {
   });
 }
 
-app.get("/health", handleHealth);
-app.get("/api/health", handleHealth);
-app.get("/stats", handleStats);
-app.get("/api/stats", handleStats);
+app.get('/health', handleHealth);
+app.get('/api/health', handleHealth);
+app.get('/stats', handleStats);
+app.get('/api/stats', handleStats);
 
-app.get("/admin", (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "admin.html"));
+app.get('/admin', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'admin.html'));
 });
 
-app.get("*", (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
 if (AUTH_REQUIRED) {
@@ -1695,20 +1666,20 @@ if (AUTH_REQUIRED) {
     (async () => {
       const token = getAuthTokenFromSocket(socket);
       if (!token) {
-        next(new Error("unauthorized"));
+        next(new Error('unauthorized'));
         return;
       }
 
       const session = await getSessionByToken(token);
       if (!session) {
-        next(new Error("unauthorized"));
+        next(new Error('unauthorized'));
         return;
       }
 
       const user = await getUserById(session.userId);
       if (!user) {
         await deleteSession(token, session);
-        next(new Error("unauthorized"));
+        next(new Error('unauthorized'));
         return;
       }
 
@@ -1722,13 +1693,13 @@ if (AUTH_REQUIRED) {
       clearPendingSessionRelease(user.id);
       next();
     })().catch((error) => {
-      console.error("[socket-auth] failed:", error);
-      next(new Error("unauthorized"));
+      console.error('[socket-auth] failed:', error);
+      next(new Error('unauthorized'));
     });
   });
 }
 
-io.on("connection", (socket) => {
+io.on('connection', (socket) => {
   stats.connectionsTotal += 1;
 
   (async () => {
@@ -1761,49 +1732,49 @@ io.on("connection", (socket) => {
     emitPlayerJoined(createdPlayer);
   })().catch((error) => {
     stats.errorsTotal += 1;
-    console.error("[connection] failed:", error);
+    console.error('[connection] failed:', error);
     socket.disconnect(true);
   });
 
-    socket.on("move", (payload) => {
-      stats.movesReceived += 1;
+  socket.on('move', (payload) => {
+    stats.movesReceived += 1;
 
-      (async () => {
-        const seq = normalizeSeq(payload?.seq);
-        const coordX = normalizeCoord(payload?.x, GRID_SIZE - 1);
-        const coordY = normalizeCoord(payload?.y, GRID_SIZE - 1);
-        const hasCoordFields = payload && ("x" in payload || "y" in payload);
-        const hasCoords = coordX !== null && coordY !== null;
-        const direction = payload?.direction;
+    (async () => {
+      const seq = normalizeSeq(payload?.seq);
+      const coordX = normalizeCoord(payload?.x, GRID_SIZE - 1);
+      const coordY = normalizeCoord(payload?.y, GRID_SIZE - 1);
+      const hasCoordFields = payload && ('x' in payload || 'y' in payload);
+      const hasCoords = coordX !== null && coordY !== null;
+      const direction = payload?.direction;
 
-        if (hasCoordFields && !hasCoords) {
-          stats.movesRejectedInvalid += 1;
-          emitMoveAck(socket, seq, false, "invalid_coords");
+      if (hasCoordFields && !hasCoords) {
+        stats.movesRejectedInvalid += 1;
+        emitMoveAck(socket, seq, false, 'invalid_coords');
+        return;
+      }
+
+      if (hasCoords) {
+        const moved = await movePlayerTo(socket.id, coordX, coordY);
+        if (!moved.ok) {
+          emitMoveAck(socket, seq, false, moved.reason || 'missing_player');
           return;
         }
+        emitPlayerMoved(moved.player, seq);
+        emitMoveAck(socket, seq, true, null, moved.player);
+        await emitPlayersNow();
+        stats.movesApplied += 1;
+        return;
+      }
 
-        if (hasCoords) {
-          const moved = await movePlayerTo(socket.id, coordX, coordY);
-          if (!moved.ok) {
-            emitMoveAck(socket, seq, false, moved.reason || "missing_player");
-            return;
-          }
-          emitPlayerMoved(moved.player, seq);
-          emitMoveAck(socket, seq, true, null, moved.player);
-          await emitPlayersNow();
-          stats.movesApplied += 1;
-          return;
-        }
-
-        if (typeof direction !== "string" || !VALID_DIRECTIONS.has(direction)) {
-          stats.movesRejectedInvalid += 1;
-          emitMoveAck(socket, seq, false, "invalid_direction");
-          return;
-        }
+      if (typeof direction !== 'string' || !VALID_DIRECTIONS.has(direction)) {
+        stats.movesRejectedInvalid += 1;
+        emitMoveAck(socket, seq, false, 'invalid_direction');
+        return;
+      }
 
       const player = await getPlayerById(socket.id);
       if (!player) {
-        emitMoveAck(socket, seq, false, "missing_player");
+        emitMoveAck(socket, seq, false, 'missing_player');
         return;
       }
 
@@ -1811,50 +1782,50 @@ io.on("connection", (socket) => {
       const last = lastMoveAt.get(socket.id) || 0;
       if (now - last < MOVE_INTERVAL_MS) {
         stats.movesRejectedRateLimit += 1;
-        emitMoveAck(socket, seq, false, "rate_limited", player);
+        emitMoveAck(socket, seq, false, 'rate_limited', player);
         return;
       }
       lastMoveAt.set(socket.id, now);
 
       if (redisDataClient) {
         const moved = await movePlayerRedis(socket.id, direction);
-        if (moved.state === "occupied") {
+        if (moved.state === 'occupied') {
           stats.movesRejectedOccupied += 1;
-          emitMoveAck(socket, seq, false, "occupied", player);
+          emitMoveAck(socket, seq, false, 'occupied', player);
           return;
         }
-        if (moved.state !== "applied") {
-          emitMoveAck(socket, seq, false, "missing_player");
+        if (moved.state !== 'applied') {
+          emitMoveAck(socket, seq, false, 'missing_player');
           return;
         }
-          const updatedPlayer = moved.player || player;
-          emitPlayerMoved(updatedPlayer, seq);
-          emitMoveAck(socket, seq, true, null, updatedPlayer);
-          await emitPlayersNow();
-          stats.movesApplied += 1;
-        } else {
-          const next = getNextPosition(player, direction);
-          if (await isOccupied(next.x, next.y, socket.id)) {
-            stats.movesRejectedOccupied += 1;
-          emitMoveAck(socket, seq, false, "occupied", player);
+        const updatedPlayer = moved.player || player;
+        emitPlayerMoved(updatedPlayer, seq);
+        emitMoveAck(socket, seq, true, null, updatedPlayer);
+        await emitPlayersNow();
+        stats.movesApplied += 1;
+      } else {
+        const next = getNextPosition(player, direction);
+        if (await isOccupied(next.x, next.y, socket.id)) {
+          stats.movesRejectedOccupied += 1;
+          emitMoveAck(socket, seq, false, 'occupied', player);
           return;
         }
 
-          player.x = next.x;
-          player.y = next.y;
-          await savePlayer(player);
-          emitPlayerMoved(player, seq);
-          emitMoveAck(socket, seq, true, null, player);
-          await emitPlayersNow();
-          stats.movesApplied += 1;
-        }
-      })().catch((error) => {
+        player.x = next.x;
+        player.y = next.y;
+        await savePlayer(player);
+        emitPlayerMoved(player, seq);
+        emitMoveAck(socket, seq, true, null, player);
+        await emitPlayersNow();
+        stats.movesApplied += 1;
+      }
+    })().catch((error) => {
       stats.errorsTotal += 1;
-      console.error("[move] failed:", error);
+      console.error('[move] failed:', error);
     });
   });
 
-  socket.on("disconnect", () => {
+  socket.on('disconnect', () => {
     stats.disconnectionsTotal += 1;
 
     (async () => {
@@ -1868,7 +1839,7 @@ io.on("connection", (socket) => {
       emitPlayerLeft(disconnectedId);
     })().catch((error) => {
       stats.errorsTotal += 1;
-      console.error("[disconnect] failed:", error);
+      console.error('[disconnect] failed:', error);
     });
   });
 });
@@ -1891,7 +1862,7 @@ async function start() {
 
   await connectMongoIfEnabled();
   if (AUTH_REQUIRE_MONGO && !mongoUsers) {
-    console.error("[startup] MongoDB is required for auth, but it is not enabled.");
+    console.error('[startup] MongoDB is required for auth, but it is not enabled.');
     process.exit(1);
   }
 
@@ -1902,7 +1873,7 @@ async function start() {
     const sweepTimer = setInterval(() => {
       sweepGhostPlayers();
     }, GHOST_SWEEP_INTERVAL_MS);
-    if (typeof sweepTimer.unref === "function") {
+    if (typeof sweepTimer.unref === 'function') {
       sweepTimer.unref();
     }
   }
@@ -1911,7 +1882,7 @@ async function start() {
     const snapshotTimer = setInterval(() => {
       scheduleEmitPlayers();
     }, SNAPSHOT_INTERVAL_MS);
-    if (typeof snapshotTimer.unref === "function") {
+    if (typeof snapshotTimer.unref === 'function') {
       snapshotTimer.unref();
     }
   }
@@ -1925,6 +1896,6 @@ async function start() {
 }
 
 start().catch((error) => {
-  console.error("[startup] failed:", error);
+  console.error('[startup] failed:', error);
   process.exit(1);
 });

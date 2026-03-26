@@ -9,6 +9,10 @@
     "pm2:start": "pm2 start config/ecosystem.config.js",
     "pm2:restart": "pm2 restart game64x64",
     "pm2:stop": "pm2 stop game64x64",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
     "test:smoke": "node tests/realtime-smoke.test.js",
     "test:auth": "node tests/auth-smoke.test.js",
     "test:stats": "node tests/stats-smoke.test.js",
@@ -27,5 +31,11 @@
     "redis": "^4.7.0",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "eslint-plugin-import": "^2.32.0",
+    "prettier": "^3.8.1"
   }
 }

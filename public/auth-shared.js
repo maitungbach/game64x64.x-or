@@ -1,18 +1,20 @@
 (function bootstrapGame64Auth(global) {
-  const SESSION_KEY = "game64x64:session";
-  const ACTIVE_SESSIONS_KEY = "game64x64:active_sessions";
-  const TAB_ID_KEY = "game64x64:tab_id";
+  const SESSION_KEY = 'game64x64:session';
+  const ACTIVE_SESSIONS_KEY = 'game64x64:active_sessions';
+  const TAB_ID_KEY = 'game64x64:tab_id';
   const ACTIVE_SESSION_TTL_MS = 15_000;
   const TEST_USERS_SEED = [
-    { name: "Tài khoản kiểm thử 01", email: "tester01@example.com", password: "Test123!" },
-    { name: "Tài khoản kiểm thử 02", email: "tester02@example.com", password: "Test123!" },
-    { name: "Tài khoản kiểm thử 03", email: "tester03@example.com", password: "Test123!" },
-    { name: "Tài khoản kiểm thử 04", email: "tester04@example.com", password: "Test123!" },
-    { name: "Tài khoản kiểm thử 05", email: "tester05@example.com", password: "Test123!" },
+    { name: 'Tài khoản kiểm thử 01', email: 'tester01@example.com', password: 'Test123!' },
+    { name: 'Tài khoản kiểm thử 02', email: 'tester02@example.com', password: 'Test123!' },
+    { name: 'Tài khoản kiểm thử 03', email: 'tester03@example.com', password: 'Test123!' },
+    { name: 'Tài khoản kiểm thử 04', email: 'tester04@example.com', password: 'Test123!' },
+    { name: 'Tài khoản kiểm thử 05', email: 'tester05@example.com', password: 'Test123!' },
   ];
 
   function normalizeEmail(value) {
-    return String(value || "").trim().toLowerCase();
+    return String(value || '')
+      .trim()
+      .toLowerCase();
   }
 
   const SEED_TEST_EMAILS = new Set(TEST_USERS_SEED.map((seed) => normalizeEmail(seed.email)));
@@ -51,7 +53,7 @@
 
   function buildSession(user) {
     return {
-      name: String(user?.name || user?.email || "").trim(),
+      name: String(user?.name || user?.email || '').trim(),
       email: normalizeEmail(user?.email),
       tabId: TAB_ID,
       sessionToken: createTabId(),
@@ -68,10 +70,10 @@
 
       const parsed = JSON.parse(raw);
       if (
-        !parsed
-        || typeof parsed.email !== "string"
-        || typeof parsed.tabId !== "string"
-        || typeof parsed.sessionToken !== "string"
+        !parsed ||
+        typeof parsed.email !== 'string' ||
+        typeof parsed.tabId !== 'string' ||
+        typeof parsed.sessionToken !== 'string'
       ) {
         return null;
       }
@@ -99,11 +101,11 @@
     const now = Date.now();
     for (const [email, lock] of Object.entries(locks)) {
       if (
-        !lock
-        || typeof lock.tabId !== "string"
-        || typeof lock.sessionToken !== "string"
-        || !Number.isFinite(Number(lock.updatedAt))
-        || now - Number(lock.updatedAt) > ACTIVE_SESSION_TTL_MS
+        !lock ||
+        typeof lock.tabId !== 'string' ||
+        typeof lock.sessionToken !== 'string' ||
+        !Number.isFinite(Number(lock.updatedAt)) ||
+        now - Number(lock.updatedAt) > ACTIVE_SESSION_TTL_MS
       ) {
         delete locks[email];
       }
@@ -118,7 +120,7 @@
       }
 
       const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         return {};
       }
 
@@ -230,12 +232,14 @@
   }
 
   async function callApi(path, options = {}) {
-    const payload = Object.prototype.hasOwnProperty.call(options, "payload") ? options.payload : undefined;
-    const method = options.method || (payload !== undefined ? "POST" : "GET");
+    const payload = Object.prototype.hasOwnProperty.call(options, 'payload')
+      ? options.payload
+      : undefined;
+    const method = options.method || (payload !== undefined ? 'POST' : 'GET');
     const response = await fetch(path, {
       method,
-      credentials: "include",
-      headers: payload !== undefined ? { "Content-Type": "application/json" } : undefined,
+      credentials: 'include',
+      headers: payload !== undefined ? { 'Content-Type': 'application/json' } : undefined,
       body: payload !== undefined ? JSON.stringify(payload) : undefined,
     });
 
@@ -246,8 +250,8 @@
       data = null;
     }
 
-    const retryAfterRaw = response.headers.get("Retry-After");
-    const retryAfterSec = Number.parseInt(retryAfterRaw || "", 10);
+    const retryAfterRaw = response.headers.get('Retry-After');
+    const retryAfterSec = Number.parseInt(retryAfterRaw || '', 10);
 
     return {
       ok: response.ok,
@@ -258,7 +262,7 @@
   }
 
   async function fetchAuthMe() {
-    const result = await callApi("/api/auth/me");
+    const result = await callApi('/api/auth/me');
     if (!result.ok) {
       return null;
     }
@@ -267,13 +271,13 @@
 
   async function logoutFromServer() {
     try {
-      await callApi("/api/auth/logout", { method: "POST" });
+      await callApi('/api/auth/logout', { method: 'POST' });
     } catch {
       // Ignore network failures on logout.
     }
   }
 
-  function getLoginUrl(nextPath = "/game.html") {
+  function getLoginUrl(nextPath = '/game.html') {
     return `/auth.html?next=${encodeURIComponent(nextPath)}`;
   }
 
