@@ -10,21 +10,21 @@ const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("status");
 const accountNameEl = document.getElementById("accountName");
 const authActionEl = document.getElementById("authAction");
-const SESSION_KEY = "game64x64:session";
-const ACTIVE_SESSIONS_KEY = "game64x64:active_sessions";
-const TAB_ID_KEY = "game64x64:tab_id";
-const ACTIVE_SESSION_TTL_MS = 15_000;
+const {
+  ACTIVE_SESSIONS_KEY,
+  clearClientSession,
+  clearSeedAccountLocks,
+  ensureOwnedAccountLock,
+  fetchAuthMe,
+  getLoginUrl,
+  logoutFromServer,
+  normalizeEmail,
+  readSession,
+  releaseOwnedAccountLock,
+} = window.Game64Auth;
 const LOCK_HEARTBEAT_MS = 4_000;
-const LOGIN_PATH = "/auth.html";
-const LOGIN_URL = `${LOGIN_PATH}?next=${encodeURIComponent("/game.html")}`;
+const LOGIN_URL = getLoginUrl("/game.html");
 const AUTH_RETRY_DELAY_MS = 1200;
-const SEED_TEST_EMAILS = new Set([
-  "tester01@example.com",
-  "tester02@example.com",
-  "tester03@example.com",
-  "tester04@example.com",
-  "tester05@example.com",
-]);
 const socket = io({
   transports: ["websocket"],
   autoConnect: false,
@@ -52,193 +52,12 @@ gridLayer.height = CANVAS_SIZE;
 const gridCtx = gridLayer.getContext("2d");
 gridCtx.imageSmoothingEnabled = false;
 
-function normalizeEmail(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function isSeedTestEmail(email) {
-  return SEED_TEST_EMAILS.has(normalizeEmail(email));
-}
-
-function getTabId() {
-  try {
-    const current = sessionStorage.getItem(TAB_ID_KEY);
-    if (current) {
-      return current;
-    }
-    const created = `${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
-    sessionStorage.setItem(TAB_ID_KEY, created);
-    return created;
-  } catch (_error) {
-    return `fallback_${Math.random().toString(16).slice(2, 10)}`;
-  }
-}
-
-const TAB_ID = getTabId();
-
 function redirectToAuth() {
   if (redirectingToAuth) {
     return;
   }
   redirectingToAuth = true;
   window.location.replace(LOGIN_URL);
-}
-
-async function callAuthApi(path, method = "GET") {
-  const response = await fetch(path, {
-    method,
-    credentials: "include",
-  });
-
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch (_error) {
-    payload = null;
-  }
-
-  return {
-    ok: response.ok,
-    status: response.status,
-    data: payload,
-  };
-}
-
-async function fetchAuthMe() {
-  const result = await callAuthApi("/api/auth/me", "GET");
-  if (!result.ok) {
-    return null;
-  }
-  return result.data?.user || null;
-}
-
-async function logoutFromServer() {
-  try {
-    await callAuthApi("/api/auth/logout", "POST");
-  } catch (_error) {
-    // Ignore network failures on logout.
-  }
-}
-
-function readSession() {
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw);
-    if (
-      !parsed
-      || typeof parsed.email !== "string"
-      || typeof parsed.tabId !== "string"
-      || typeof parsed.sessionToken !== "string"
-    ) {
-      return null;
-    }
-    if (parsed.tabId !== TAB_ID) {
-      return null;
-    }
-    return parsed;
-  } catch (_error) {
-    return null;
-  }
-}
-
-function pruneExpiredLocks(locks) {
-  const now = Date.now();
-  for (const [email, lock] of Object.entries(locks)) {
-    if (
-      !lock
-      || typeof lock.tabId !== "string"
-      || typeof lock.sessionToken !== "string"
-      || !Number.isFinite(Number(lock.updatedAt))
-      || now - Number(lock.updatedAt) > ACTIVE_SESSION_TTL_MS
-    ) {
-      delete locks[email];
-    }
-  }
-}
-
-function readActiveSessions() {
-  try {
-    const raw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-    pruneExpiredLocks(parsed);
-    return parsed;
-  } catch (_error) {
-    return {};
-  }
-}
-
-function writeActiveSessions(locks) {
-  localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(locks));
-}
-
-function clearSeedAccountLocks() {
-  const locks = readActiveSessions();
-  let changed = false;
-  for (const email of SEED_TEST_EMAILS) {
-    if (locks[email]) {
-      delete locks[email];
-      changed = true;
-    }
-  }
-  if (changed) {
-    writeActiveSessions(locks);
-  }
-}
-
-function ensureOwnedAccountLock(session) {
-  if (!session) {
-    return false;
-  }
-
-  const email = normalizeEmail(session.email);
-  if (isSeedTestEmail(email)) {
-    return true;
-  }
-  const locks = readActiveSessions();
-  const lock = locks[email];
-
-  if (lock && (lock.tabId !== TAB_ID || lock.sessionToken !== session.sessionToken)) {
-    return false;
-  }
-
-  locks[email] = {
-    tabId: TAB_ID,
-    sessionToken: session.sessionToken,
-    updatedAt: Date.now(),
-  };
-  writeActiveSessions(locks);
-  return true;
-}
-
-function releaseOwnedAccountLock(session) {
-  if (!session) {
-    return;
-  }
-
-  const email = normalizeEmail(session.email);
-  if (isSeedTestEmail(email)) {
-    return;
-  }
-  const locks = readActiveSessions();
-  const lock = locks[email];
-  if (!lock) {
-    return;
-  }
-  if (lock.tabId !== TAB_ID || lock.sessionToken !== session.sessionToken) {
-    return;
-  }
-
-  delete locks[email];
-  writeActiveSessions(locks);
 }
 
 function stopLockHeartbeat() {
@@ -249,26 +68,26 @@ function stopLockHeartbeat() {
   lockHeartbeatTimer = null;
 }
 
-function handleSessionConflict(message, options = {}) {
-  const shouldLogoutServer = options.logoutServer === true;
-  const shouldReleaseLock = options.releaseLock !== false;
-  const currentSession = readSession();
-
-  if (socket.connected || socket.active) {
-    socket.disconnect();
-  }
-  if (shouldReleaseLock) {
-    releaseOwnedAccountLock(currentSession);
-  }
-  if (shouldLogoutServer) {
-    logoutFromServer();
-  }
-  stopLockHeartbeat();
+function resetRuntimeState() {
   playersById.clear();
   pendingInputs = [];
   myServerPos = null;
   myId = null;
-  sessionStorage.removeItem(SESSION_KEY);
+}
+
+function handleSessionConflict(message, options = {}) {
+  const shouldLogoutServer = options.logoutServer === true;
+  const shouldReleaseLock = options.releaseLock !== false;
+
+  if (socket.connected || socket.active) {
+    socket.disconnect();
+  }
+  clearClientSession({ releaseLock: shouldReleaseLock });
+  if (shouldLogoutServer) {
+    logoutFromServer();
+  }
+  stopLockHeartbeat();
+  resetRuntimeState();
   statusEl.textContent = message || "Phiên đăng nhập không hợp lệ. Đang chuyển hướng...";
   renderAccountBar();
   window.setTimeout(redirectToAuth, 150);
@@ -313,17 +132,13 @@ function renderAccountBar() {
   authActionEl.href = "#";
   authActionEl.onclick = async (event) => {
     event.preventDefault();
-    releaseOwnedAccountLock(session);
+    clearClientSession();
     await logoutFromServer();
-    sessionStorage.removeItem(SESSION_KEY);
     if (socket.connected) {
       socket.disconnect();
     }
     stopLockHeartbeat();
-    playersById.clear();
-    pendingInputs = [];
-    myServerPos = null;
-    myId = null;
+    resetRuntimeState();
     statusEl.textContent = "Đã đăng xuất. Đang chuyển đến trang đăng nhập...";
     renderAccountBar();
     redirectToAuth();
@@ -735,7 +550,7 @@ async function bootstrapAuthAndConnect() {
       handleSessionConflict("Phiên đăng nhập đã hết hạn hoặc bị thay đổi.");
       return;
     }
-  } catch (_error) {
+  } catch {
     statusEl.textContent = "Không thể xác thực tài khoản. Đang thử lại...";
     window.setTimeout(() => {
       if (!redirectingToAuth) {
