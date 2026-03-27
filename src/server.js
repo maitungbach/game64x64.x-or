@@ -1419,6 +1419,21 @@ function isStatsAuthorized(req) {
   return req.get('x-stats-token') === STATS_TOKEN;
 }
 
+function getRedactedMongoUrl() {
+  if (!MONGO_URL) {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(MONGO_URL);
+    const authPrefix = parsed.username ? `${parsed.username}:***@` : '';
+    const pathname = parsed.pathname || '';
+    return `${parsed.protocol}//${authPrefix}${parsed.host}${pathname}`;
+  } catch (_error) {
+    return MONGO_URL;
+  }
+}
+
 function setAuthCookie(res, token) {
   res.setHeader(
     'Set-Cookie',
@@ -1663,10 +1678,36 @@ async function handleStats(req, res) {
   });
 }
 
+async function handleDebugUserLookup(req, res) {
+  if (!isStatsAuthorized(req)) {
+    res.status(401).json({ ok: false, message: 'Unauthorized' });
+    return;
+  }
+
+  const email = normalizeEmail(req.query?.email);
+  if (!email) {
+    res.status(400).json({ ok: false, message: 'Missing email query param' });
+    return;
+  }
+
+  const user = await getUserByEmail(email);
+  res.json({
+    ok: true,
+    lookupEmail: email,
+    nodeId: NODE_ID,
+    authStorage: getAuthStorageMode(),
+    mongoConnected: Boolean(mongoUsers),
+    mongoUrl: getRedactedMongoUrl(),
+    found: Boolean(user),
+    user: user ? toPublicUser(user) : null,
+  });
+}
+
 app.get('/health', handleHealth);
 app.get('/api/health', handleHealth);
 app.get('/stats', handleStats);
 app.get('/api/stats', handleStats);
+app.get('/api/debug/user-by-email', handleDebugUserLookup);
 
 app.get('/admin', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'admin.html'));
