@@ -273,7 +273,7 @@
     try {
       await callApi('/api/auth/logout', { method: 'POST' });
     } catch {
-      // Ignore network failures on logout.
+      // Ignore network failures during logout.
     }
   }
 
