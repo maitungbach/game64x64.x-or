@@ -1479,6 +1479,9 @@ app.post('/api/auth/register', async (req, res) => {
       AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC
     );
     if (currentLimit.count >= AUTH_REGISTER_RATE_LIMIT_MAX) {
+      console.warn(
+        `[auth-register] rate_limited ip=${clientIp} retryAfter=${currentLimit.retryAfterSec}s stage=precheck`
+      );
       setRetryAfter(res, currentLimit.retryAfterSec);
       res.status(429).json({ ok: false, message: 'Too many register attempts' });
       return;
@@ -1495,6 +1498,9 @@ app.post('/api/auth/register', async (req, res) => {
     !isValidEmail(email) ||
     password.length < AUTH_DEFAULT_PASSWORD_MIN
   ) {
+    console.warn(
+      `[auth-register] invalid_payload ip=${clientIp} email=${email || 'missing'} nameLength=${name.length} passwordLength=${password.length}`
+    );
     res.status(400).json({ ok: false, message: 'Invalid register payload' });
     return;
   }
@@ -1506,6 +1512,9 @@ app.post('/api/auth/register', async (req, res) => {
       AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC
     );
     if (nextLimit.count > AUTH_REGISTER_RATE_LIMIT_MAX) {
+      console.warn(
+        `[auth-register] rate_limited ip=${clientIp} email=${email} retryAfter=${nextLimit.retryAfterSec}s stage=post-increment`
+      );
       setRetryAfter(res, nextLimit.retryAfterSec);
       res.status(429).json({ ok: false, message: 'Too many register attempts' });
       return;
@@ -1514,6 +1523,7 @@ app.post('/api/auth/register', async (req, res) => {
 
   const existing = await getUserByEmail(email);
   if (existing) {
+    console.warn(`[auth-register] duplicate_email ip=${clientIp} email=${email}`);
     res.status(409).json({ ok: false, message: 'Email already registered' });
     return;
   }
@@ -1527,17 +1537,22 @@ app.post('/api/auth/register', async (req, res) => {
   };
   const createdUser = await createUser(user);
   if (!createdUser.ok) {
+    console.warn(`[auth-register] create_user_conflict ip=${clientIp} email=${email}`);
     res.status(409).json({ ok: false, message: 'Email already registered' });
     return;
   }
 
   const created = await createSessionForUser(createdUser.user);
   if (!created.ok) {
+    console.warn(`[auth-register] session_conflict ip=${clientIp} email=${email} reason=${created.reason}`);
     res.status(409).json({ ok: false, message: created.reason });
     return;
   }
 
   setAuthCookie(res, created.session.token);
+  console.log(
+    `[auth-register] success ip=${clientIp} email=${email} userId=${createdUser.user.id} authStorage=${getAuthStorageMode()}`
+  );
   res.status(201).json({ ok: true, user: toPublicUser(createdUser.user) });
 });
 
