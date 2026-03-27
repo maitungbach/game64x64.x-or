@@ -43,6 +43,16 @@ pm2 restart config/ecosystem.config.js --only game64x64 --update-env
 pm2 save
 ```
 
+## Luu tru tai khoan
+Tai khoan dang ky moi duoc luu truc tiep trong MongoDB collection `game64x64.users`.
+Day la nguon du lieu chinh, duoc giu lai sau khi restart app, PM2, hoac reboot VPS.
+Khong dung file cuc bo tren tung app node de luu tai khoan dang ky.
+
+Kiem tra nhanh tren data node:
+```bash
+mongosh "mongodb://172.16.10.202:27017/game64x64" --eval "db.users.find({}, { email: 1, name: 1, createdAt: 1 }).limit(10)"
+```
+
 ## Broadcast batching
 Server gop cac request broadcast trong khoang `BROADCAST_INTERVAL_MS` (mac dinh 33ms)
 nham giam tan suat `updatePlayers` duoi tai cao.

@@ -10,7 +10,6 @@ const TEST_PORT = 3104;
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
 const SERVER_PATH = path.join(__dirname, '..', 'src', 'server.js');
 const ENV_PATH = path.join(__dirname, '..', '.env');
-const USERS_FILE_PATH = path.join(__dirname, '..', 'users.json');
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -226,20 +225,6 @@ async function cleanupMongoAuthState(db, email) {
   await users.deleteMany({ email });
 }
 
-function cleanupUsersFileState(email) {
-  if (!fs.existsSync(USERS_FILE_PATH)) {
-    return;
-  }
-
-  const parsed = JSON.parse(fs.readFileSync(USERS_FILE_PATH, 'utf8') || '[]');
-  const next = Array.isArray(parsed)
-    ? parsed.filter(
-        (entry) => String(entry?.email || '').toLowerCase() !== String(email).toLowerCase()
-      )
-    : [];
-  fs.writeFileSync(USERS_FILE_PATH, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
-}
-
 async function run() {
   const mongoClient = new MongoClient(MONGO_URL, { maxPoolSize: 4 });
   await mongoClient.connect();
@@ -253,7 +238,6 @@ async function run() {
 
   try {
     await cleanupMongoAuthState(mongoDb, email);
-    cleanupUsersFileState(email);
 
     serverHandle = startServer();
     await waitForHealth();
@@ -286,11 +270,6 @@ async function run() {
     const mongoUser = await mongoDb.collection('users').findOne({ email });
     assert(mongoUser, 'Registered account should be stored in MongoDB users collection');
     assert.strictEqual(mongoUser.name, name, 'MongoDB should store the registered display name');
-
-    const usersFile = JSON.parse(fs.readFileSync(USERS_FILE_PATH, 'utf8'));
-    const fileUser = usersFile.find((entry) => entry?.email === email);
-    assert(fileUser, 'Registered account should be stored in users.json');
-    assert.strictEqual(fileUser.name, name, 'users.json should store the registered display name');
 
     combinedStderr += serverHandle.getStderr();
     await stopServer(serverHandle);
@@ -405,7 +384,6 @@ async function run() {
       console.error(combinedStderr.trim());
     }
     await cleanupMongoAuthState(mongoDb, email);
-    cleanupUsersFileState(email);
     await mongoClient.close();
   }
 

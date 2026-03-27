@@ -3,7 +3,6 @@ const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
-const fsp = require('fs/promises');
 const { Server } = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const { createClient } = require('redis');
@@ -59,7 +58,6 @@ const io = new Server(server, {
 const PORT = Number(process.env.PORT || 3000);
 const ROOT_DIR = path.join(__dirname, '..');
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
-const USERS_FILE_PATH = path.join(ROOT_DIR, 'users.json');
 const GRID_SIZE = 64;
 const MAX_SPAWN_ATTEMPTS = 500;
 const MOVE_INTERVAL_MS = Number(process.env.MOVE_INTERVAL_MS || 16);
@@ -286,30 +284,6 @@ function toPublicUser(user) {
     name: user.name,
     createdAt: user.createdAt,
   };
-}
-
-async function readUsersFile() {
-  try {
-    const raw = await fsp.readFile(USERS_FILE_PATH, 'utf8');
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return [];
-    }
-    throw error;
-  }
-}
-
-async function upsertUserFileRecord(user) {
-  const publicUser = toPublicUser(user);
-  const users = await readUsersFile();
-  const nextUsers = users.filter(
-    (entry) => entry && normalizeEmail(entry.email) !== normalizeEmail(publicUser.email)
-  );
-  nextUsers.push(publicUser);
-  nextUsers.sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
-  await fsp.writeFile(USERS_FILE_PATH, `${JSON.stringify(nextUsers, null, 2)}\n`, 'utf8');
 }
 
 function parseAuthUser(raw) {
@@ -627,20 +601,16 @@ async function getUserById(userId) {
   return null;
 }
 
-async function createUser(user, options = {}) {
+async function createUser(user) {
   const next = {
     ...user,
     email: normalizeEmail(user.email),
     name: normalizeDisplayName(user.name),
   };
-  const shouldPersistToFile = options.persistToFile === true;
 
   if (mongoUsers) {
     try {
       await mongoUsers.insertOne(next);
-      if (shouldPersistToFile) {
-        await upsertUserFileRecord(next);
-      }
       return { ok: true, user: next };
     } catch (error) {
       if (isDuplicateAuthUserError(error)) {
@@ -656,18 +626,12 @@ async function createUser(user, options = {}) {
     }
     usersByEmail.set(next.email, next);
     usersById.set(next.id, next);
-    if (shouldPersistToFile) {
-      await upsertUserFileRecord(next);
-    }
     return { ok: true, user: next };
   }
 
   const saved = await redisDataClient.hSetNX(REDIS_USERS_KEY, next.email, JSON.stringify(next));
   if (!saved) {
     return { ok: false, reason: 'exists' };
-  }
-  if (shouldPersistToFile) {
-    await upsertUserFileRecord(next);
   }
   return { ok: true, user: next };
 }
@@ -1561,7 +1525,7 @@ app.post('/api/auth/register', async (req, res) => {
     passwordHash: hashPassword(password),
     createdAt: new Date().toISOString(),
   };
-  const createdUser = await createUser(user, { persistToFile: true });
+  const createdUser = await createUser(user);
   if (!createdUser.ok) {
     res.status(409).json({ ok: false, message: 'Email already registered' });
     return;

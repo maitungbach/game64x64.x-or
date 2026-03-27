@@ -4,3 +4,4 @@ logs/
 npm-debug.log*
 .env
 tmp-*.log
+users.json
