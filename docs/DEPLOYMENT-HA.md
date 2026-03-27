@@ -36,13 +36,36 @@ npm install
 mkdir -p logs
 ```
 
+Tao tunnel local de app node truy cap MongoDB qua `127.0.0.1:37018`:
+```bash
+sudo tee /etc/systemd/system/game64x64-mongo-tunnel.service >/dev/null <<'EOF'
+[Unit]
+Description=Game64x64 MongoDB SSH Tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Restart=always
+RestartSec=5
+ExecStart=/usr/bin/ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o BatchMode=yes -o StrictHostKeyChecking=no -p 2357 -L 127.0.0.1:37018:172.16.10.202:27017 root@103.252.74.109
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now game64x64-mongo-tunnel
+ss -lntp | grep 37018
+```
+
 Tao file `.env`:
 ```bash
 PORT=3000
 NODE_ENV=production
 ENABLE_REDIS=true
 REDIS_URL=redis://:ColorBox64x64_Redis_2026@172.16.10.202:6379
-MONGO_URL=mongodb://172.16.10.202:27017
+MONGO_URL=mongodb://127.0.0.1:37018
 MONGO_DB_NAME=game64x64
 REDIS_PLAYERS_KEY=game64x64:players
 REDIS_USERS_KEY=game64x64:users
@@ -50,6 +73,7 @@ REDIS_SESSION_PREFIX=game64x64:session:
 REDIS_USER_SESSION_PREFIX=game64x64:user-session:
 MOVE_INTERVAL_MS=16
 SNAPSHOT_INTERVAL_MS=250
+ALLOW_LOOPBACK_MONGO_TUNNEL=true
 AUTH_REQUIRE_MONGO=true
 AUTH_REJECT_CONCURRENT=true
 AUTH_SEED_TEST_USERS=true

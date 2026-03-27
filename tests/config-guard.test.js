@@ -56,7 +56,7 @@ async function run() {
       ENABLE_REDIS: "true",
       AUTH_REQUIRE_MONGO: "true",
       REDIS_URL: "redis://127.0.0.1:6379",
-      MONGO_URL: "mongodb://127.0.0.1:27017",
+      MONGO_URL: "mongodb://127.0.0.1:37018",
       STRICT_CLUSTER_CONFIG: "true",
     },
     stdio: ["ignore", "pipe", "pipe"],

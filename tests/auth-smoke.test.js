@@ -45,7 +45,7 @@ function loadEnvFile(filePath) {
 }
 
 const FILE_ENV = loadEnvFile(ENV_PATH);
-const MONGO_URL = process.env.MONGO_URL || FILE_ENV.MONGO_URL || 'mongodb://127.0.0.1:27017';
+const MONGO_URL = process.env.MONGO_URL || FILE_ENV.MONGO_URL || 'mongodb://127.0.0.1:37018';
 const MONGO_DB_NAME = process.env.MONGO_DB_NAME || FILE_ENV.MONGO_DB_NAME || 'game64x64';
 
 function delay(ms) {

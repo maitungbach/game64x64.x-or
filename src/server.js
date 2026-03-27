@@ -98,6 +98,8 @@ const AUTH_SEED_TEST_USERS = String(process.env.AUTH_SEED_TEST_USERS || 'true') 
 const AUTH_ALLOW_CONCURRENT_SEED_USERS =
   String(process.env.AUTH_ALLOW_CONCURRENT_SEED_USERS || 'true') === 'true';
 const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED || 'true') === 'true';
+const ALLOW_LOOPBACK_MONGO_TUNNEL =
+  String(process.env.ALLOW_LOOPBACK_MONGO_TUNNEL || 'false') === 'true';
 const AUTH_DEFAULT_PASSWORD_MIN = 6;
 const AUTH_DEFAULT_NAME_MAX = 24;
 const AUTH_DEFAULT_NAME_MIN = 2;
@@ -394,7 +396,12 @@ function getConfigWarnings() {
   if (ENABLE_REDIS && isLoopbackRedisUrl(REDIS_URL)) {
     warnings.push('Redis is enabled but REDIS_URL points to a loopback host.');
   }
-  if (ENABLE_REDIS && AUTH_REQUIRE_MONGO && isLoopbackMongoUrl(MONGO_URL)) {
+  if (
+    ENABLE_REDIS &&
+    AUTH_REQUIRE_MONGO &&
+    isLoopbackMongoUrl(MONGO_URL) &&
+    !ALLOW_LOOPBACK_MONGO_TUNNEL
+  ) {
     warnings.push('Cluster mode is enabled but MONGO_URL points to a loopback host.');
   }
   if (AUTH_REQUIRE_MONGO && !MONGO_URL) {
@@ -412,7 +419,12 @@ function getConfigFatalErrors() {
   if (ENABLE_REDIS && isLoopbackRedisUrl(REDIS_URL)) {
     errors.push('Cluster mode in production cannot use a loopback REDIS_URL.');
   }
-  if (ENABLE_REDIS && AUTH_REQUIRE_MONGO && isLoopbackMongoUrl(MONGO_URL)) {
+  if (
+    ENABLE_REDIS &&
+    AUTH_REQUIRE_MONGO &&
+    isLoopbackMongoUrl(MONGO_URL) &&
+    !ALLOW_LOOPBACK_MONGO_TUNNEL
+  ) {
     errors.push('Cluster mode in production cannot use a loopback MONGO_URL.');
   }
   if (AUTH_REQUIRE_MONGO && !MONGO_URL) {

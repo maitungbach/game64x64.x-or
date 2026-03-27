@@ -50,7 +50,7 @@ Khong dung file cuc bo tren tung app node de luu tai khoan dang ky.
 
 Kiem tra nhanh tren data node:
 ```bash
-mongosh "mongodb://172.16.10.202:27017/game64x64" --eval "db.users.find({}, { email: 1, name: 1, createdAt: 1 }).limit(10)"
+mongosh "mongodb://127.0.0.1:37018/game64x64" --eval "db.users.find({}, { email: 1, name: 1, createdAt: 1 }).limit(10)"
 ```
 
 ## Broadcast batching
