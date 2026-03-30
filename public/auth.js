@@ -16,6 +16,7 @@ const loginFormEl = document.getElementById('loginForm');
 const registerFormEl = document.getElementById('registerForm');
 const authMessageEl = document.getElementById('authMessage');
 const seedListEl = document.getElementById('seedList');
+const testAccountsEl = document.querySelector('.test-accounts');
 
 const TEXT = Object.freeze({
   authModeLabel: 'Chế độ xác thực',
@@ -97,8 +98,15 @@ function hydrateStaticText() {
   setText('label[for="registerEmail"]', 'Email');
   setText('label[for="registerPassword"]', 'Mật khẩu');
   setText('label[for="registerConfirm"]', 'Nhập lại mật khẩu');
-  setText('.note', TEXT.note);
-  setText('.test-accounts h2', TEXT.seedHeading);
+  setText(
+    '.note',
+    TEST_USERS_SEED.length > 0
+      ? TEXT.note
+      : 'Dang nhap duoc xu ly boi may chu. Tai khoan thuong gioi han 1 phien.'
+  );
+  if (TEST_USERS_SEED.length > 0) {
+    setText('.test-accounts h2', TEXT.seedHeading);
+  }
 
   const tabs = document.querySelector('.auth-tabs');
   if (tabs) {
@@ -117,10 +125,16 @@ function hydrateStaticText() {
 }
 
 function renderSeedAccounts() {
-  if (!seedListEl) {
+  if (!seedListEl || !testAccountsEl) {
     return;
   }
 
+  if (TEST_USERS_SEED.length === 0) {
+    testAccountsEl.hidden = true;
+    return;
+  }
+
+  testAccountsEl.hidden = false;
   seedListEl.innerHTML = '';
   for (const seed of TEST_USERS_SEED) {
     const item = document.createElement('li');

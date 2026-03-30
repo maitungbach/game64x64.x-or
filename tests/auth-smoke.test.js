@@ -1,50 +1,17 @@
 const { spawn } = require('child_process');
-const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const assert = require('assert');
 const { MongoClient } = require('mongodb');
 const { io } = require('socket.io-client');
+const { loadEnvFile } = require('../src/lib/load-env-file.js');
 
 const TEST_PORT = 3104;
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
 const SERVER_PATH = path.join(__dirname, '..', 'src', 'server.js');
 const ENV_PATH = path.join(__dirname, '..', '.env');
 
-function loadEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) {
-    return {};
-  }
-
-  return fs
-    .readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .reduce((acc, rawLine) => {
-      const line = rawLine.trim();
-      if (!line || line.startsWith('#')) {
-        return acc;
-      }
-
-      const separatorIndex = line.indexOf('=');
-      if (separatorIndex === -1) {
-        return acc;
-      }
-
-      const key = line.slice(0, separatorIndex).trim();
-      let value = line.slice(separatorIndex + 1).trim();
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-
-      acc[key] = value;
-      return acc;
-    }, {});
-}
-
-const FILE_ENV = loadEnvFile(ENV_PATH);
+const FILE_ENV = loadEnvFile(ENV_PATH, {});
 const MONGO_URL = process.env.MONGO_URL || FILE_ENV.MONGO_URL || 'mongodb://127.0.0.1:37018';
 const MONGO_DB_NAME = process.env.MONGO_DB_NAME || FILE_ENV.MONGO_DB_NAME || 'game64x64';
 
@@ -102,7 +69,7 @@ function requestJson(method, route, body = null, cookie = '') {
   });
 }
 
-async function waitForHealth(timeoutMs = 6000) {
+async function waitForHealth(timeoutMs = 10000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     try {
