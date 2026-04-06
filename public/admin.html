@@ -1,33 +1,42 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bảng điều khiển quản trị Game64x64</title>
-  <link rel="stylesheet" href="admin.css?v=20260406-1" />
+  <link rel="stylesheet" href="admin.css?v=20260406-2" />
 </head>
 <body>
-  <main class="wrap">
-    <header class="top">
-      <div>
-        <p class="eyebrow">Admin Console</p>
-        <h1>Bảng điều khiển quản trị</h1>
+  <div class="admin-backdrop" aria-hidden="true"></div>
+
+  <main class="dashboard">
+    <header class="hero panel-shell">
+      <div class="hero-copy">
+        <p class="eyebrow">Operations Console</p>
+        <h1>Trung tâm điều hành Game64x64</h1>
+        <p class="hero-lead">
+          Theo dõi node đang phục vụ, tình trạng phiên đăng nhập và các chỉ số runtime trong một màn hình duy nhất.
+        </p>
         <p id="adminWelcome" class="subtle">Đang kiểm tra quyền truy cập...</p>
       </div>
-      <div class="top-actions">
-        <a href="/game.html">Mở game</a>
+
+      <div class="hero-actions">
+        <a class="action-link" href="/game.html">Mở game</a>
         <button id="logoutBtn" type="button">Đăng xuất</button>
       </div>
     </header>
 
-    <section class="panel panel-inline">
-      <div>
-        <h2>Quyền truy cập</h2>
-        <p id="authStatus">Đang dùng quyền admin session cho /api/health và /api/stats.</p>
-        <p class="subtle">Có thể đính kèm thêm STATS_TOKEN nếu bạn muốn gửi kèm header giám sát.</p>
+    <section class="toolbar panel-shell">
+      <div class="toolbar-copy">
+        <p class="eyebrow">Access</p>
+        <h2>Phiên quản trị và token quan sát</h2>
+        <p id="authStatus" class="subtle">
+          Đang dùng quyền admin session cho /api/health và /api/stats.
+        </p>
       </div>
+
       <div class="token-controls">
-        <label for="token">STATS_TOKEN (tuỳ chọn)</label>
+        <label for="token">STATS_TOKEN tuỳ chọn</label>
         <div class="row">
           <input id="token" type="password" placeholder="Nhập STATS_TOKEN" />
           <button id="applyToken" type="button">Áp dụng</button>
@@ -35,109 +44,149 @@
       </div>
     </section>
 
-    <section class="panel">
-      <div class="section-head">
-        <h2>Tra cứu người dùng</h2>
-        <p id="lookupMessage" class="subtle">Nhập email để xem tài khoản và session đang hoạt động.</p>
-      </div>
-
-      <form id="lookupForm" class="lookup-form">
-        <input id="lookupEmail" name="email" type="email" placeholder="user@example.com" required />
-        <button type="submit">Tra cứu</button>
-        <button id="refreshLookup" type="button">Tải lại</button>
-      </form>
-
-      <div id="lookupEmpty" class="empty-state">Chưa có người dùng nào được chọn.</div>
-
-      <section id="lookupResult" class="lookup-result is-hidden" aria-live="polite">
-        <div class="lookup-grid">
-          <article class="mini-card">
-            <h3>Tài khoản</h3>
-            <ul>
-              <li><strong>tên:</strong> <span id="lookupName">-</span></li>
-              <li><strong>email:</strong> <span id="lookupResultEmail">-</span></li>
-              <li><strong>user id:</strong> <span id="lookupUserId">-</span></li>
-              <li><strong>vai trò:</strong> <span id="lookupRole">-</span></li>
-              <li><strong>tạo lúc:</strong> <span id="lookupCreatedAt">-</span></li>
-            </ul>
-          </article>
-
-          <article class="mini-card">
-            <h3>Session</h3>
-            <ul>
-              <li><strong>đang hoạt động:</strong> <span id="lookupSessionCount">0</span></li>
-              <li><strong>node trả lời:</strong> <span id="lookupNodeId">-</span></li>
-              <li><strong>auth storage:</strong> <span id="lookupAuthStorage">-</span></li>
-              <li><strong>mongo connected:</strong> <span id="lookupMongoConnected">-</span></li>
-            </ul>
-          </article>
-        </div>
-
-        <div class="session-box">
-          <div class="section-head">
-            <h3>Danh sách session active</h3>
-            <button id="revokeSessions" type="button" disabled>Thu hồi tất cả session</button>
+    <section class="dashboard-grid">
+      <section class="panel-shell lookup-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Lookup</p>
+            <h2>Tra cứu người dùng</h2>
           </div>
-          <ul id="lookupSessions" class="session-list">
-            <li class="session-item empty">Chưa có session nào.</li>
-          </ul>
+          <p id="lookupMessage" class="subtle">
+            Nhập email để xem tài khoản và session đang hoạt động.
+          </p>
         </div>
+
+        <form id="lookupForm" class="lookup-form">
+          <input id="lookupEmail" name="email" type="email" placeholder="user@example.com" required />
+          <button type="submit">Tra cứu</button>
+          <button id="refreshLookup" type="button" class="ghost-btn">Tải lại</button>
+        </form>
+
+        <div id="lookupEmpty" class="empty-state">Chưa có người dùng nào được chọn.</div>
+
+        <section id="lookupResult" class="lookup-result is-hidden" aria-live="polite">
+          <div class="lookup-grid">
+            <article class="info-card">
+              <div class="info-head">
+                <p class="eyebrow">Account</p>
+                <h3>Tài khoản</h3>
+              </div>
+              <ul class="fact-list">
+                <li><span>Tên</span><strong id="lookupName">-</strong></li>
+                <li><span>Email</span><strong id="lookupResultEmail">-</strong></li>
+                <li><span>User ID</span><strong id="lookupUserId">-</strong></li>
+                <li><span>Vai trò</span><strong id="lookupRole">-</strong></li>
+                <li><span>Tạo lúc</span><strong id="lookupCreatedAt">-</strong></li>
+              </ul>
+            </article>
+
+            <article class="info-card">
+              <div class="info-head">
+                <p class="eyebrow">Sessions</p>
+                <h3>Phiên hoạt động</h3>
+              </div>
+              <ul class="fact-list">
+                <li><span>Đang hoạt động</span><strong id="lookupSessionCount">0</strong></li>
+                <li><span>Node trả lời</span><strong id="lookupNodeId">-</strong></li>
+                <li><span>Auth storage</span><strong id="lookupAuthStorage">-</strong></li>
+                <li><span>Mongo connected</span><strong id="lookupMongoConnected">-</strong></li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="session-box">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">Active Sessions</p>
+                <h3>Danh sách session</h3>
+              </div>
+              <button id="revokeSessions" type="button" disabled>Thu hồi tất cả session</button>
+            </div>
+
+            <ul id="lookupSessions" class="session-list">
+              <li class="session-item empty">Chưa có session nào.</li>
+            </ul>
+          </div>
+        </section>
       </section>
+
+      <aside class="metrics-column">
+        <article class="panel-shell metric-card">
+          <div class="info-head">
+            <p class="eyebrow">Health</p>
+            <h2>Trạng thái hệ thống</h2>
+          </div>
+          <ul class="fact-list">
+            <li><span>Trạng thái</span><strong id="healthOk">-</strong></li>
+            <li><span>Người chơi</span><strong id="healthPlayers">-</strong></li>
+            <li><span>Redis</span><strong id="healthRedis">-</strong></li>
+            <li><span>Auth storage</span><strong id="healthAuthStorage">-</strong></li>
+            <li><span>Mongo connected</span><strong id="healthMongoConnected">-</strong></li>
+          </ul>
+        </article>
+
+        <article class="panel-shell metric-card">
+          <div class="info-head">
+            <p class="eyebrow">Node</p>
+            <h2>Node đang phục vụ</h2>
+          </div>
+          <ul class="fact-list">
+            <li><span>Health version</span><strong id="healthVersion">-</strong></li>
+            <li><span>Health node</span><strong id="healthNodeId">-</strong></li>
+            <li><span>Stats version</span><strong id="statsVersion">-</strong></li>
+            <li><span>Stats node</span><strong id="statsNodeId">-</strong></li>
+          </ul>
+        </article>
+
+        <article class="panel-shell metric-card">
+          <div class="info-head">
+            <p class="eyebrow">Runtime</p>
+            <h2>Thời gian chạy</h2>
+          </div>
+          <ul class="fact-list">
+            <li><span>Đã chạy</span><strong id="uptime">-</strong></li>
+            <li><span>PID</span><strong id="pid">-</strong></li>
+            <li><span>Người chơi trực tuyến</span><strong id="playersOnline">-</strong></li>
+            <li><span>Socket đang kết nối</span><strong id="socketsOnline">-</strong></li>
+          </ul>
+        </article>
+
+        <article class="panel-shell metric-card warning-card">
+          <div class="info-head">
+            <p class="eyebrow">Warnings</p>
+            <h2>Cảnh báo cấu hình</h2>
+          </div>
+          <ul id="healthWarnings" class="warning-list">
+            <li class="warning-item is-ok">Đang tải...</li>
+          </ul>
+        </article>
+      </aside>
     </section>
 
-    <section class="grid">
-      <article class="card">
-        <h2>Trạng thái hệ thống</h2>
-        <ul>
-          <li><strong>trạng thái:</strong> <span id="healthOk">-</span></li>
-          <li><strong>người chơi:</strong> <span id="healthPlayers">-</span></li>
-          <li><strong>redis:</strong> <span id="healthRedis">-</span></li>
-          <li><strong>auth storage:</strong> <span id="healthAuthStorage">-</span></li>
-          <li><strong>mongo connected:</strong> <span id="healthMongoConnected">-</span></li>
-        </ul>
-      </article>
-
-      <article class="card">
-        <h2>Node đang phục vụ</h2>
-        <ul>
-          <li><strong>version:</strong> <span id="healthVersion">-</span></li>
-          <li><strong>node id:</strong> <span id="healthNodeId">-</span></li>
-          <li><strong>stats version:</strong> <span id="statsVersion">-</span></li>
-          <li><strong>stats node id:</strong> <span id="statsNodeId">-</span></li>
-        </ul>
-      </article>
-
-      <article class="card">
-        <h2>Thời gian chạy</h2>
-        <ul>
-          <li><strong>đã chạy:</strong> <span id="uptime">-</span></li>
-          <li><strong>pid:</strong> <span id="pid">-</span></li>
-          <li><strong>người chơi trực tuyến:</strong> <span id="playersOnline">-</span></li>
-          <li><strong>socket đang kết nối:</strong> <span id="socketsOnline">-</span></li>
-        </ul>
-      </article>
-
-      <article class="card">
-        <h2>Cảnh báo cấu hình</h2>
-        <ul id="healthWarnings" class="warning-list">
-          <li class="warning-item is-ok">Đang tải...</li>
-        </ul>
-      </article>
-
-      <article class="card wide">
-        <h2>Bộ đếm</h2>
-        <div id="counters" class="counter-grid"></div>
-      </article>
+    <section class="panel-shell counter-panel">
+      <div class="section-head compact">
+        <div>
+          <p class="eyebrow">Runtime Counters</p>
+          <h2>Bộ đếm hệ thống</h2>
+        </div>
+      </div>
+      <div id="counters" class="counter-grid"></div>
     </section>
 
-    <section class="panel">
-      <h2>Lần cập nhật gần nhất</h2>
-      <p id="lastUpdate">-</p>
-      <p id="error">-</p>
+    <section class="status-strip panel-shell">
+      <div>
+        <p class="eyebrow">Refresh</p>
+        <h2>Lần cập nhật gần nhất</h2>
+        <p id="lastUpdate" class="subtle">-</p>
+      </div>
+      <div class="status-alert">
+        <p class="eyebrow">Errors</p>
+        <p id="error">-</p>
+      </div>
     </section>
   </main>
 
-  <script src="auth-shared.js?v=20260327-1"></script>
+  <script src="auth-shared.js?v=20260406-2"></script>
   <script src="admin-panel.js?v=20260406-1"></script>
 </body>
 </html>
