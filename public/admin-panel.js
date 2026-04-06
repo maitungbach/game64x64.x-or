@@ -10,6 +10,7 @@ const {
 } = window.Game64Auth;
 
 const LOGIN_URL = getLoginUrl('/admin');
+const REFRESH_INTERVAL_MS = 2000;
 
 const el = {
   token: document.getElementById('token'),
@@ -58,6 +59,8 @@ const state = {
   currentAdmin: null,
   lookupUser: null,
   lookupEmail: '',
+  refreshInFlight: false,
+  refreshTimer: null,
 };
 
 function setText(node, value) {
@@ -205,46 +208,70 @@ async function ensureAccess(result) {
 }
 
 async function refreshDashboard() {
-  const health = await callApi('/api/health');
-  if (!(await ensureAccess(health))) {
+  if (state.refreshInFlight) {
     return;
   }
 
-  if (health.ok && health.data) {
-    setText(el.healthOk, health.data.ok);
-    setText(el.healthPlayers, health.data.players);
-    setText(el.healthRedis, health.data.redisEnabled);
-    setText(el.healthVersion, health.data.version || '-');
-    setText(el.healthNodeId, health.data.nodeId || '-');
-    setText(el.healthAuthStorage, health.data.authStorage || '-');
-    setText(el.healthMongoConnected, health.data.mongoConnected);
-    renderWarnings(health.data.configWarnings);
+  state.refreshInFlight = true;
+
+  try {
+    const health = await callApi('/api/health');
+    if (!(await ensureAccess(health))) {
+      return;
+    }
+
+    if (health.ok && health.data) {
+      setText(el.healthOk, health.data.ok);
+      setText(el.healthPlayers, health.data.players);
+      setText(el.healthRedis, health.data.redisEnabled);
+      setText(el.healthVersion, health.data.version || '-');
+      setText(el.healthNodeId, health.data.nodeId || '-');
+      setText(el.healthAuthStorage, health.data.authStorage || '-');
+      setText(el.healthMongoConnected, health.data.mongoConnected);
+      renderWarnings(health.data.configWarnings);
+    }
+
+    const headers = {};
+    if (state.token) {
+      headers['x-stats-token'] = state.token;
+    }
+
+    const stats = await callApi('/api/stats', { headers });
+    if (!(await ensureAccess(stats))) {
+      return;
+    }
+
+    if (stats.ok && stats.data) {
+      setText(el.uptime, `${stats.data.uptimeSec}s`);
+      setText(el.pid, stats.data.pid);
+      setText(el.statsVersion, stats.data.version || '-');
+      setText(el.statsNodeId, stats.data.nodeId || '-');
+      setText(el.playersOnline, stats.data.playersOnline);
+      setText(el.socketsOnline, stats.data.socketsOnline);
+      renderCounters(stats.data.counters);
+      setText(el.error, '-');
+    } else {
+      setText(el.error, `Loi thong ke ${stats.status}.`);
+    }
+
+    setText(el.lastUpdate, new Date().toLocaleString());
+  } catch (_error) {
+    setText(el.error, 'Khong the cap nhat dashboard.');
+  } finally {
+    state.refreshInFlight = false;
+  }
+}
+
+function scheduleDashboardRefresh(delayMs = REFRESH_INTERVAL_MS) {
+  if (state.refreshTimer) {
+    window.clearTimeout(state.refreshTimer);
   }
 
-  const headers = {};
-  if (state.token) {
-    headers['x-stats-token'] = state.token;
-  }
-
-  const stats = await callApi('/api/stats', { headers });
-  if (!(await ensureAccess(stats))) {
-    return;
-  }
-
-  if (stats.ok && stats.data) {
-    setText(el.uptime, `${stats.data.uptimeSec}s`);
-    setText(el.pid, stats.data.pid);
-    setText(el.statsVersion, stats.data.version || '-');
-    setText(el.statsNodeId, stats.data.nodeId || '-');
-    setText(el.playersOnline, stats.data.playersOnline);
-    setText(el.socketsOnline, stats.data.socketsOnline);
-    renderCounters(stats.data.counters);
-    setText(el.error, '-');
-  } else {
-    setText(el.error, `Loi thong ke ${stats.status}.`);
-  }
-
-  setText(el.lastUpdate, new Date().toLocaleString());
+  state.refreshTimer = window.setTimeout(async () => {
+    state.refreshTimer = null;
+    await refreshDashboard();
+    scheduleDashboardRefresh();
+  }, delayMs);
 }
 
 async function lookupUser(email) {
@@ -350,6 +377,7 @@ async function bootstrap() {
   state.currentAdmin = me;
   setText(el.adminWelcome, `${me.name || me.email} (${me.email})`);
   await refreshDashboard();
+  scheduleDashboardRefresh();
 }
 
 el.applyToken.addEventListener('click', async () => {
@@ -362,4 +390,3 @@ el.revokeSessions.addEventListener('click', handleRevokeSessions);
 el.logoutBtn.addEventListener('click', handleLogout);
 
 bootstrap();
-setInterval(refreshDashboard, 2000);

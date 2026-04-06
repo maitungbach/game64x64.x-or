@@ -156,12 +156,24 @@ function Get-AppPort {
   return [int]$portValue
 }
 
-function Get-AppHealth {
+function Get-AppStatus {
   $port = Get-AppPort
-  $uri = "http://127.0.0.1:$port/api/health"
+  $uri = "http://127.0.0.1:$port/stats"
+  $statsToken = Get-Setting -Name 'STATS_TOKEN' -Default ''
+  $requestOptions = @{
+    UseBasicParsing = $true
+    Uri = $uri
+    TimeoutSec = 5
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($statsToken)) {
+    $requestOptions.Headers = @{
+      'x-stats-token' = $statsToken
+    }
+  }
 
   try {
-    $response = Invoke-WebRequest -UseBasicParsing -Uri $uri -TimeoutSec 5
+    $response = Invoke-WebRequest @requestOptions
     if (-not $response.Content) {
       return $null
     }
@@ -174,7 +186,7 @@ function Get-AppHealth {
 
 function Test-AppHealthy {
   $requireMongo = (Get-Setting -Name 'AUTH_REQUIRE_MONGO' -Default 'false').ToLowerInvariant() -eq 'true'
-  $health = Get-AppHealth
+  $health = Get-AppStatus
 
   if (-not $health -or $health.ok -ne $true) {
     return $false
@@ -345,7 +357,7 @@ function Ensure-AppHealthy {
   $deadline = (Get-Date).AddSeconds(30)
 
   while ((Get-Date) -lt $deadline) {
-    $health = Get-AppHealth
+    $health = Get-AppStatus
     if ($health -and $health.ok -eq $true) {
       if (-not $requireMongo -or $health.mongoConnected -eq $true) {
         Write-RuntimeLog "[health] ok=$($health.ok) mongoConnected=$($health.mongoConnected)"

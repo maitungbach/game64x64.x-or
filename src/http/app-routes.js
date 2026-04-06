@@ -79,6 +79,10 @@ function registerAppRoutes(deps) {
     getStatsSnapshot,
   });
 
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ ok: false, message: 'Not found' });
+  });
+
   app.get('*', (_req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
   });

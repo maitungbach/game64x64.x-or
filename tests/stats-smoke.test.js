@@ -77,6 +77,18 @@ async function run() {
     );
     assert(authorized.body.counters, 'counters missing');
 
+    const publicAlias = await requestJson(`${BASE_URL}/stats`, {
+      'x-stats-token': 'secret-token',
+    });
+    assert.strictEqual(publicAlias.statusCode, 200, 'Expected /stats with token to succeed');
+    assert.strictEqual(publicAlias.body.ok, true, 'Expected ok=true in /stats response');
+    assert.strictEqual(typeof publicAlias.body.mongoConnected, 'boolean', 'mongoConnected missing');
+
+    const apiNotFound = await requestJson(`${BASE_URL}/api/does-not-exist`);
+    assert.strictEqual(apiNotFound.statusCode, 404, 'Expected unknown API route to return 404');
+    assert.strictEqual(apiNotFound.body?.ok, false, 'Expected ok=false in unknown API response');
+    assert.strictEqual(apiNotFound.body?.message, 'Not found', 'Expected API 404 message');
+
     console.log('PASS stats smoke: auth + shape');
   } finally {
     await serverHandle.stop();
