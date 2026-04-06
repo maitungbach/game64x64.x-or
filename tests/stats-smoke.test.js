@@ -1,15 +1,9 @@
-﻿const { spawn } = require('child_process');
 const http = require('http');
-const path = require('path');
 const assert = require('assert');
+const { startTestServer } = require('./helpers/server-harness.js');
 
 const TEST_PORT = 3102;
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
-const SERVER_PATH = path.join(__dirname, '..', 'src', 'server.js');
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function requestJson(url, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -33,68 +27,29 @@ function requestJson(url, headers = {}) {
   });
 }
 
-async function stopServer(server) {
-  if (!server || server.exitCode !== null || server.killed) {
-    return;
-  }
-
-  const exited = new Promise((resolve) => {
-    server.once('exit', resolve);
-  });
-
-  server.kill();
-  await Promise.race([exited, delay(600)]);
-}
-
-async function waitForHealth() {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 6000) {
-    try {
-      const res = await requestJson(`${BASE_URL}/api/health`);
-      if (res.statusCode === 200) {
-        return;
-      }
-    } catch (_error) {
-      // keep retrying
-    }
-    await delay(100);
-  }
-  throw new Error('Server healthcheck timeout');
-}
-
 async function run() {
-  const server = spawn(process.execPath, [SERVER_PATH], {
-    env: {
-      ...process.env,
-      PORT: String(TEST_PORT),
-      NODE_ENV: 'test',
-      ENABLE_REDIS: 'false',
-      STATS_TOKEN: 'secret-token',
-      AUTH_REQUIRED: 'false',
-      AUTH_REQUIRE_MONGO: 'false',
-      STRICT_CLUSTER_CONFIG: 'false',
-      MONGO_URL: '',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  let stderr = '';
-
-  server.stderr.on('data', (chunk) => {
-    stderr += chunk.toString();
+  const serverHandle = await startTestServer({
+    PORT: String(TEST_PORT),
+    NODE_ENV: 'test',
+    ENABLE_REDIS: 'false',
+    STATS_TOKEN: 'secret-token',
+    AUTH_REQUIRED: 'false',
+    AUTH_REQUIRE_MONGO: 'false',
+    STRICT_CLUSTER_CONFIG: 'false',
+    MONGO_URL: '',
   });
 
   try {
-    await waitForHealth();
-
-    const health = await requestJson(`${BASE_URL}/api/health`);
-    assert.strictEqual(health.statusCode, 200, 'Expected /api/health to succeed');
+    const health = await requestJson(`${BASE_URL}/health`);
+    assert.strictEqual(health.statusCode, 200, 'Expected /health to succeed');
     assert.strictEqual(health.body.ok, true, 'Expected ok=true in health response');
-    assert.strictEqual(typeof health.body.version, 'string', 'version missing in health response');
-    assert(health.body.version.length > 0, 'version should not be empty');
-    assert.strictEqual(typeof health.body.nodeId, 'string', 'nodeId missing in health response');
-    assert(health.body.nodeId.length > 0, 'nodeId should not be empty');
-    assert(Array.isArray(health.body.configWarnings), 'configWarnings missing in health response');
+
+    const healthUnauthorized = await requestJson(`${BASE_URL}/api/health`);
+    assert.strictEqual(
+      healthUnauthorized.statusCode,
+      401,
+      'Expected /api/health unauthorized without admin session'
+    );
 
     const unauthorized = await requestJson(`${BASE_URL}/api/stats`);
     assert.strictEqual(
@@ -124,11 +79,7 @@ async function run() {
 
     console.log('PASS stats smoke: auth + shape');
   } finally {
-    await stopServer(server);
-
-    if (stderr.trim()) {
-      console.error(stderr.trim());
-    }
+    await serverHandle.stop();
   }
 }
 

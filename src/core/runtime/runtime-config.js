@@ -44,6 +44,15 @@ function createRuntimeConfig(packageJson) {
   const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED || 'true') === 'true';
   const ALLOW_LOOPBACK_MONGO_TUNNEL =
     String(process.env.ALLOW_LOOPBACK_MONGO_TUNNEL || 'false') === 'true';
+  const adminEmailsRaw = process.env.ADMIN_EMAILS || process.env.AUTH_ADMIN_EMAILS || '';
+  const AUTH_ADMIN_EMAILS = Array.from(
+    new Set(
+      String(adminEmailsRaw)
+        .split(',')
+        .map((entry) => String(entry || '').trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
   const AUTH_DEFAULT_PASSWORD_MIN = 6;
   const AUTH_DEFAULT_NAME_MAX = 24;
   const AUTH_DEFAULT_NAME_MIN = 2;
@@ -197,6 +206,7 @@ function createRuntimeConfig(packageJson) {
     AUTH_ALLOW_CONCURRENT_SEED_USERS,
     AUTH_REQUIRED,
     ALLOW_LOOPBACK_MONGO_TUNNEL,
+    AUTH_ADMIN_EMAILS,
     AUTH_DEFAULT_PASSWORD_MIN,
     AUTH_DEFAULT_NAME_MAX,
     AUTH_DEFAULT_NAME_MIN,

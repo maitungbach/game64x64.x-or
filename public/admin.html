@@ -4,22 +4,85 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bảng điều khiển quản trị Game64x64</title>
-  <link rel="stylesheet" href="admin.css?v=20260320-1" />
+  <link rel="stylesheet" href="admin.css?v=20260406-1" />
 </head>
 <body>
   <main class="wrap">
     <header class="top">
-      <h1>Bảng điều khiển quản trị</h1>
-      <a href="/">Mở game</a>
+      <div>
+        <p class="eyebrow">Admin Console</p>
+        <h1>Bảng điều khiển quản trị</h1>
+        <p id="adminWelcome" class="subtle">Đang kiểm tra quyền truy cập...</p>
+      </div>
+      <div class="top-actions">
+        <a href="/game.html">Mở game</a>
+        <button id="logoutBtn" type="button">Đăng xuất</button>
+      </div>
     </header>
 
-    <section class="panel">
-      <label for="token">Token thống kê (nếu có)</label>
-      <div class="row">
-        <input id="token" type="password" placeholder="Nhập STATS_TOKEN" />
-        <button id="applyToken" type="button">Áp dụng</button>
+    <section class="panel panel-inline">
+      <div>
+        <h2>Quyền truy cập</h2>
+        <p id="authStatus">Đang dùng quyền admin session cho /api/health và /api/stats.</p>
+        <p class="subtle">Có thể đính kèm thêm STATS_TOKEN nếu bạn muốn gửi kèm header giám sát.</p>
       </div>
-      <p id="authStatus">Đang dùng /stats không token.</p>
+      <div class="token-controls">
+        <label for="token">STATS_TOKEN (tuỳ chọn)</label>
+        <div class="row">
+          <input id="token" type="password" placeholder="Nhập STATS_TOKEN" />
+          <button id="applyToken" type="button">Áp dụng</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Tra cứu người dùng</h2>
+        <p id="lookupMessage" class="subtle">Nhập email để xem tài khoản và session đang hoạt động.</p>
+      </div>
+
+      <form id="lookupForm" class="lookup-form">
+        <input id="lookupEmail" name="email" type="email" placeholder="user@example.com" required />
+        <button type="submit">Tra cứu</button>
+        <button id="refreshLookup" type="button">Tải lại</button>
+      </form>
+
+      <div id="lookupEmpty" class="empty-state">Chưa có người dùng nào được chọn.</div>
+
+      <section id="lookupResult" class="lookup-result is-hidden" aria-live="polite">
+        <div class="lookup-grid">
+          <article class="mini-card">
+            <h3>Tài khoản</h3>
+            <ul>
+              <li><strong>tên:</strong> <span id="lookupName">-</span></li>
+              <li><strong>email:</strong> <span id="lookupResultEmail">-</span></li>
+              <li><strong>user id:</strong> <span id="lookupUserId">-</span></li>
+              <li><strong>vai trò:</strong> <span id="lookupRole">-</span></li>
+              <li><strong>tạo lúc:</strong> <span id="lookupCreatedAt">-</span></li>
+            </ul>
+          </article>
+
+          <article class="mini-card">
+            <h3>Session</h3>
+            <ul>
+              <li><strong>đang hoạt động:</strong> <span id="lookupSessionCount">0</span></li>
+              <li><strong>node trả lời:</strong> <span id="lookupNodeId">-</span></li>
+              <li><strong>auth storage:</strong> <span id="lookupAuthStorage">-</span></li>
+              <li><strong>mongo connected:</strong> <span id="lookupMongoConnected">-</span></li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="session-box">
+          <div class="section-head">
+            <h3>Danh sách session active</h3>
+            <button id="revokeSessions" type="button" disabled>Thu hồi tất cả session</button>
+          </div>
+          <ul id="lookupSessions" class="session-list">
+            <li class="session-item empty">Chưa có session nào.</li>
+          </ul>
+        </div>
+      </section>
     </section>
 
     <section class="grid">
@@ -74,6 +137,7 @@
     </section>
   </main>
 
-  <script src="admin.js?v=20260320-1"></script>
+  <script src="auth-shared.js?v=20260327-1"></script>
+  <script src="admin-panel.js?v=20260406-1"></script>
 </body>
 </html>

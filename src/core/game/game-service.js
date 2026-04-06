@@ -8,6 +8,7 @@ function createGameService(options) {
   let broadcastTimer = null;
   let broadcastPending = false;
   let broadcastInFlight = false;
+  let shuttingDown = false;
 
   function randomInt(maxExclusive) {
     return Math.floor(Math.random() * maxExclusive);
@@ -63,8 +64,12 @@ function createGameService(options) {
   }
 
   async function getPlayersList() {
+    if (shuttingDown) {
+      return [];
+    }
+
     const redisDataClient = getRedisDataClient();
-    if (!redisDataClient) {
+    if (!redisDataClient || !redisDataClient.isOpen) {
       return Array.from(players.values());
     }
 
@@ -82,8 +87,12 @@ function createGameService(options) {
   }
 
   async function getPlayerById(id) {
+    if (shuttingDown) {
+      return null;
+    }
+
     const redisDataClient = getRedisDataClient();
-    if (!redisDataClient) {
+    if (!redisDataClient || !redisDataClient.isOpen) {
       return players.get(id) || null;
     }
 
@@ -96,8 +105,12 @@ function createGameService(options) {
   }
 
   async function savePlayer(player) {
+    if (shuttingDown) {
+      return;
+    }
+
     const redisDataClient = getRedisDataClient();
-    if (!redisDataClient) {
+    if (!redisDataClient || !redisDataClient.isOpen) {
       players.set(player.id, player);
       return;
     }
@@ -106,8 +119,12 @@ function createGameService(options) {
   }
 
   async function removePlayer(id) {
+    if (shuttingDown) {
+      return;
+    }
+
     const redisDataClient = getRedisDataClient();
-    if (!redisDataClient) {
+    if (!redisDataClient || !redisDataClient.isOpen) {
       players.delete(id);
       return;
     }
@@ -160,7 +177,7 @@ function createGameService(options) {
 
   async function rebuildRedisCellsIndex() {
     const redisDataClient = getRedisDataClient();
-    if (!redisDataClient) {
+    if (shuttingDown || !redisDataClient || !redisDataClient.isOpen) {
       return;
     }
 
@@ -205,6 +222,10 @@ function createGameService(options) {
   }
 
   function scheduleEmitPlayers() {
+    if (shuttingDown) {
+      return;
+    }
+
     stats.broadcastRequestsTotal += 1;
 
     if (broadcastTimer || broadcastInFlight) {
@@ -234,7 +255,7 @@ function createGameService(options) {
 
   async function sweepGhostPlayers() {
     const redisDataClient = getRedisDataClient();
-    if (!redisDataClient) {
+    if (shuttingDown || !redisDataClient || !redisDataClient.isOpen) {
       return;
     }
 
@@ -265,7 +286,7 @@ function createGameService(options) {
 
   async function spawnPlayerRedis(playerId) {
     const redisDataClient = getRedisDataClient();
-    if (!redisDataClient) {
+    if (shuttingDown || !redisDataClient || !redisDataClient.isOpen) {
       return null;
     }
 
@@ -354,6 +375,10 @@ function createGameService(options) {
   }
 
   async function createPlayer(playerId) {
+    if (shuttingDown) {
+      return null;
+    }
+
     if (usesRedisStorage()) {
       return await spawnPlayerRedis(playerId);
     }
@@ -374,6 +399,10 @@ function createGameService(options) {
   }
 
   async function connectPlayer(playerId) {
+    if (shuttingDown) {
+      return null;
+    }
+
     const player = await createPlayer(playerId);
     if (!player) {
       return null;
@@ -385,7 +414,7 @@ function createGameService(options) {
 
   async function movePlayerRedis(playerId, direction) {
     const redisDataClient = getRedisDataClient();
-    if (!redisDataClient) {
+    if (shuttingDown || !redisDataClient || !redisDataClient.isOpen) {
       return { state: 'missing' };
     }
 
@@ -454,6 +483,10 @@ function createGameService(options) {
   }
 
   async function movePlayerTo(playerId, x, y) {
+    if (shuttingDown) {
+      return { ok: false, reason: 'missing_player' };
+    }
+
     const player = await getPlayerById(playerId);
     if (!player) {
       return { ok: false, reason: 'missing_player' };
@@ -470,7 +503,7 @@ function createGameService(options) {
     };
 
     const redisDataClient = getRedisDataClient();
-    if (!redisDataClient) {
+    if (!redisDataClient || !redisDataClient.isOpen) {
       await savePlayer(next);
       return { ok: true, player: next };
     }
@@ -505,6 +538,10 @@ function createGameService(options) {
   }
 
   async function emitPlayersNow() {
+    if (shuttingDown) {
+      return;
+    }
+
     const list = await getPlayersList();
     io.emit('updatePlayers', list);
     stats.broadcastsEmitted += 1;
@@ -554,6 +591,10 @@ function createGameService(options) {
   }
 
   async function disconnectPlayer(playerId) {
+    if (shuttingDown) {
+      return;
+    }
+
     await removePlayer(playerId);
     lastMoveAt.delete(playerId);
     scheduleEmitPlayers();
@@ -562,6 +603,18 @@ function createGameService(options) {
 
   function getSocketsOnlineCount() {
     return io.of('/').sockets.size;
+  }
+
+  function shutdown() {
+    shuttingDown = true;
+    if (broadcastTimer) {
+      clearTimeout(broadcastTimer);
+      broadcastTimer = null;
+    }
+    broadcastPending = false;
+    broadcastInFlight = false;
+    players.clear();
+    lastMoveAt.clear();
   }
 
   return {
@@ -584,6 +637,7 @@ function createGameService(options) {
     rebuildRedisCellsIndex,
     savePlayer,
     scheduleEmitPlayers,
+    shutdown,
     sweepGhostPlayers,
     usesRedisStorage,
   };

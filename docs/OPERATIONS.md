@@ -1,11 +1,17 @@
 # Operations Guide
 
+## Release checklist
+Xem [RELEASE-CHECKLIST.md](/c:/workspace/game64x64.x-or/docs/RELEASE-CHECKLIST.md) truoc moi lan deploy hoac restart.
+
 ## Admin dashboard
 - URL: `/admin`
+- Can dang nhap bang tai khoan co email nam trong `ADMIN_EMAILS`
 - Hien thi:
   - Health (`/api/health`)
   - Runtime stats (`/api/stats`)
   - Counters connect/move/disconnect/error
+  - Tra cuu user theo email
+  - Thu hoi session va ngat socket cua user
 
 Dashboard poll moi 2 giay.
 
@@ -13,15 +19,23 @@ Dashboard poll moi 2 giay.
 Neu dat `STATS_TOKEN`, endpoint `/api/stats` se yeu cau header:
 - `x-stats-token: <token>`
 
-Trang `/admin` co o nhap token de gui header nay.
+Admin session hop le van co the truy cap `/api/stats` ma khong can token.
+Trang `/admin` co o nhap token de gui kem header nay khi can.
+
+## Bao ve /api/health
+- `GET /health`: healthcheck toi thieu cho probe/load balancer
+- `GET /api/health`: chi tiet he thong, yeu cau admin session
 
 ## Endpoint
-- `GET /api/health`: health check nhanh
+- `GET /health`: liveness check toi thieu
+- `GET /api/health`: health check chi tiet, yeu cau admin
 - `GET /api/stats`: runtime stats (co the can token)
+- `GET /api/admin/user-by-email?email=<email>`: tra cuu user va session active
+- `POST /api/admin/user/revoke-sessions`: thu hoi session user
 
 ## Kiem tra nhanh
 ```bash
-curl http://127.0.0.1:3000/api/health
+curl http://127.0.0.1:3000/health
 curl -H "x-stats-token: <token>" http://127.0.0.1:3000/api/stats
 ```
 

@@ -1,15 +1,15 @@
-const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
 const assert = require('assert');
 const { MongoClient } = require('mongodb');
 const { io } = require('socket.io-client');
 const { loadEnvFile } = require('../src/lib/load-env-file.js');
+const { startTestServer } = require('./helpers/server-harness.js');
 
 const TEST_PORT = 3104;
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
-const SERVER_PATH = path.join(__dirname, '..', 'src', 'server.js');
 const ENV_PATH = path.join(__dirname, '..', '.env');
+const RUN_ADMIN_ASSERTIONS = true;
 
 const FILE_ENV = loadEnvFile(ENV_PATH, {});
 const MONGO_URL = process.env.MONGO_URL || FILE_ENV.MONGO_URL || 'mongodb://127.0.0.1:37018';
@@ -54,6 +54,7 @@ function requestJson(method, route, body = null, cookie = '') {
           resolve({
             statusCode: res.statusCode,
             body: parsed,
+            rawBody: raw,
             setCookie: res.headers['set-cookie'] || [],
             headers: res.headers,
           });
@@ -67,22 +68,6 @@ function requestJson(method, route, body = null, cookie = '') {
     }
     req.end();
   });
-}
-
-async function waitForHealth(timeoutMs = 10000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const res = await requestJson('GET', '/api/health');
-      if (res.statusCode === 200) {
-        return;
-      }
-    } catch (_error) {
-      // retry
-    }
-    await delay(100);
-  }
-  throw new Error('Server healthcheck timeout');
 }
 
 function extractCookie(setCookieHeaders) {
@@ -118,68 +103,40 @@ function waitForSocketConnect(socket) {
   });
 }
 
-function startServer() {
-  const server = spawn(process.execPath, [SERVER_PATH], {
-    env: {
-      ...process.env,
-      PORT: String(TEST_PORT),
-      NODE_ENV: 'test',
-      ENABLE_REDIS: 'false',
-      STRICT_CLUSTER_CONFIG: 'false',
-      MONGO_URL,
-      MONGO_DB_NAME,
-      AUTH_REQUIRED: 'true',
-      AUTH_REQUIRE_MONGO: 'true',
-      AUTH_REJECT_CONCURRENT: 'true',
-      AUTH_SEED_TEST_USERS: 'true',
-      AUTH_ALLOW_CONCURRENT_SEED_USERS: 'true',
-      AUTH_RELEASE_DELAY_MS: '200',
-      AUTH_LOGIN_FAIL_RATE_LIMIT_MAX: '2',
-      AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC: '60',
-      AUTH_REGISTER_RATE_LIMIT_MAX: '10',
-      AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC: '60',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+function waitForSocketDisconnect(socket) {
+  return new Promise((resolve, reject) => {
+    if (!socket?.connected) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => reject(new Error('Socket disconnect timeout')), 4000);
+    socket.once('disconnect', () => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
-
-  let stdout = '';
-  let stderr = '';
-
-  server.stdout.on('data', (chunk) => {
-    stdout += chunk.toString();
-  });
-
-  server.stderr.on('data', (chunk) => {
-    stderr += chunk.toString();
-  });
-
-  return {
-    process: server,
-    getStdout() {
-      return stdout;
-    },
-    getStderr() {
-      return stderr;
-    },
-  };
 }
 
-async function stopServer(serverHandle) {
-  if (!serverHandle?.process) {
-    return;
-  }
-
-  const server = serverHandle.process;
-  if (server.exitCode !== null || server.killed) {
-    return;
-  }
-
-  const exited = new Promise((resolve) => {
-    server.once('exit', resolve);
+function createServerHandle() {
+  return startTestServer({
+    PORT: String(TEST_PORT),
+    NODE_ENV: 'test',
+    ENABLE_REDIS: 'false',
+    STATS_TOKEN: 'secret-token',
+    STRICT_CLUSTER_CONFIG: 'false',
+    MONGO_URL,
+    MONGO_DB_NAME,
+    AUTH_REQUIRED: 'true',
+    AUTH_REQUIRE_MONGO: 'true',
+    AUTH_REJECT_CONCURRENT: 'true',
+    AUTH_SEED_TEST_USERS: 'true',
+    AUTH_ALLOW_CONCURRENT_SEED_USERS: 'true',
+    AUTH_RELEASE_DELAY_MS: '200',
+    AUTH_LOGIN_FAIL_RATE_LIMIT_MAX: '2',
+    AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC: '60',
+    AUTH_REGISTER_RATE_LIMIT_MAX: '10',
+    AUTH_REGISTER_RATE_LIMIT_WINDOW_SEC: '60',
   });
-
-  server.kill();
-  await Promise.race([exited, delay(600)]);
 }
 
 async function cleanupMongoAuthState(db, email) {
@@ -197,22 +154,22 @@ async function run() {
   await mongoClient.connect();
   const mongoDb = mongoClient.db(MONGO_DB_NAME);
   const email = `auth_test_${Date.now()}@example.com`;
+  const adminVictimEmail = `admin_victim_${Date.now()}@example.com`;
   let activeSocket = null;
+  let adminVictimSocket = null;
   let serverHandle = null;
-  let combinedStderr = '';
   let startedServers = 0;
   let primaryError = null;
 
   try {
     await cleanupMongoAuthState(mongoDb, email);
+    await cleanupMongoAuthState(mongoDb, adminVictimEmail);
 
-    serverHandle = startServer();
-    await waitForHealth();
+    serverHandle = await createServerHandle();
     startedServers += 1;
-    const healthRes = await requestJson('GET', '/api/health');
+    const healthRes = await requestJson('GET', '/health');
     assert.strictEqual(healthRes.statusCode, 200, 'Health should return 200');
-    assert.strictEqual(healthRes.body?.authStorage, 'mongo', 'Auth storage should use MongoDB');
-    assert.strictEqual(healthRes.body?.mongoConnected, true, 'MongoDB should be connected');
+    assert.strictEqual(healthRes.body?.ok, true, 'Public health should return ok=true');
 
     const password = 'Test123!';
     const name = 'Auth Test';
@@ -238,10 +195,8 @@ async function run() {
     assert(mongoUser, 'Registered account should be stored in MongoDB users collection');
     assert.strictEqual(mongoUser.name, name, 'MongoDB should store the registered display name');
 
-    combinedStderr += serverHandle.getStderr();
-    await stopServer(serverHandle);
-    serverHandle = startServer();
-    await waitForHealth();
+    await serverHandle.stop();
+    serverHandle = await createServerHandle();
     startedServers += 1;
 
     const meAfterRestartRes = await requestJson('GET', '/api/auth/me', null, registerCookie);
@@ -333,8 +288,126 @@ async function run() {
       'Expected Retry-After header on login rate limit'
     );
 
+    if (RUN_ADMIN_ASSERTIONS) {
+      const anonAdminPage = await requestJson('GET', '/admin');
+      assert.strictEqual(anonAdminPage.statusCode, 302, 'Anonymous /admin should redirect to login');
+      assert.strictEqual(
+        anonAdminPage.headers?.location,
+        '/auth.html?next=%2Fadmin',
+        'Anonymous /admin should redirect to admin login'
+      );
+
+      const anonAdminHealth = await requestJson('GET', '/api/health');
+      assert.strictEqual(
+        anonAdminHealth.statusCode,
+        401,
+        'Anonymous /api/health should require admin auth'
+      );
+
+      const nonAdminLogin = await requestJson('POST', '/api/auth/login', {
+        email: 'tester02@example.com',
+        password: 'Test123!',
+      });
+      assert.strictEqual(nonAdminLogin.statusCode, 200, 'Non-admin seed user login should succeed');
+      const nonAdminCookie = extractCookie(nonAdminLogin.setCookie);
+
+      const nonAdminPage = await requestJson('GET', '/admin', null, nonAdminCookie);
+      assert.strictEqual(nonAdminPage.statusCode, 403, 'Non-admin should be blocked from /admin');
+
+      const nonAdminHealth = await requestJson('GET', '/api/health', null, nonAdminCookie);
+      assert.strictEqual(
+        nonAdminHealth.statusCode,
+        403,
+        'Non-admin should be blocked from /api/health'
+      );
+
+      const nonAdminStats = await requestJson('GET', '/api/stats', null, nonAdminCookie);
+      assert.strictEqual(
+        nonAdminStats.statusCode,
+        401,
+        'Non-admin should not access /api/stats without STATS_TOKEN'
+      );
+
+      const adminLogin = await requestJson('POST', '/api/auth/login', {
+        email: 'tester01@example.com',
+        password: 'Test123!',
+      });
+      assert.strictEqual(adminLogin.statusCode, 200, 'Admin seed user login should succeed');
+      const adminCookie = extractCookie(adminLogin.setCookie);
+
+      const adminPage = await requestJson('GET', '/admin', null, adminCookie);
+      assert.strictEqual(adminPage.statusCode, 200, 'Admin should access /admin');
+      assert(
+        adminPage.rawBody.includes('Tra cứu người dùng'),
+        'Expected admin page HTML to include lookup tools'
+      );
+
+      const adminHealth = await requestJson('GET', '/api/health', null, adminCookie);
+      assert.strictEqual(adminHealth.statusCode, 200, 'Admin should access /api/health');
+      assert.strictEqual(adminHealth.body?.authStorage, 'mongo', 'Admin health should report Mongo');
+
+      const adminStats = await requestJson('GET', '/api/stats', null, adminCookie);
+      assert.strictEqual(adminStats.statusCode, 200, 'Admin should access /api/stats without token');
+
+      const victimRegisterRes = await requestJson('POST', '/api/auth/register', {
+        email: adminVictimEmail,
+        password: 'Victim123!',
+        name: 'Admin Victim',
+      });
+      assert.strictEqual(victimRegisterRes.statusCode, 201, 'Victim registration should succeed');
+      const victimCookie = extractCookie(victimRegisterRes.setCookie);
+
+      adminVictimSocket = connectAuthedSocket(victimCookie);
+      await waitForSocketConnect(adminVictimSocket);
+
+      const lookupRes = await requestJson(
+        'GET',
+        `/api/admin/user-by-email?email=${encodeURIComponent(adminVictimEmail)}`,
+        null,
+        adminCookie
+      );
+      assert.strictEqual(lookupRes.statusCode, 200, 'Admin lookup should succeed');
+      assert.strictEqual(lookupRes.body?.found, true, 'Admin lookup should find victim');
+      assert(
+        Number(lookupRes.body?.sessionSummary?.count) >= 1,
+        'Victim should have at least one active session'
+      );
+
+      const victimUserId = lookupRes.body?.user?.id;
+      assert(victimUserId, 'Admin lookup should return victim user id');
+
+      const disconnectWait = waitForSocketDisconnect(adminVictimSocket);
+      const revokeRes = await requestJson(
+        'POST',
+        '/api/admin/user/revoke-sessions',
+        { userId: victimUserId },
+        adminCookie
+      );
+      assert.strictEqual(revokeRes.statusCode, 200, 'Admin revoke should succeed');
+      assert(
+        Number(revokeRes.body?.revokedCount) >= 1,
+        'Admin revoke should clear at least one session'
+      );
+      assert(
+        Number(revokeRes.body?.disconnectedSockets) >= 1,
+        'Admin revoke should disconnect at least one socket'
+      );
+
+      await disconnectWait;
+      adminVictimSocket = null;
+
+      const victimMeRes = await requestJson('GET', '/api/auth/me', null, victimCookie);
+      assert.strictEqual(
+        victimMeRes.statusCode,
+        401,
+        'Victim session should be unauthorized after admin revoke'
+      );
+    }
+
     console.log(
-      'PASS auth smoke: mongo persistence + restart session + single-session + seed concurrent + login rate limit'
+      RUN_ADMIN_ASSERTIONS
+        ? 'PASS auth smoke admin: auth + admin route guard + lookup + revoke session'
+        : 'PASS auth smoke: mongo persistence + restart session + single-session + seed concurrent + login rate limit'
     );
   } catch (error) {
     primaryError = error;
@@ -343,14 +416,14 @@ async function run() {
     if (activeSocket) {
       activeSocket.disconnect();
     }
-    if (serverHandle) {
-      combinedStderr += serverHandle.getStderr();
-      await stopServer(serverHandle);
+    if (adminVictimSocket) {
+      adminVictimSocket.disconnect();
     }
-    if (combinedStderr.trim()) {
-      console.error(combinedStderr.trim());
+    if (serverHandle) {
+      await serverHandle.stop();
     }
     await cleanupMongoAuthState(mongoDb, email);
+    await cleanupMongoAuthState(mongoDb, adminVictimEmail);
     await mongoClient.close();
   }
 

@@ -243,10 +243,16 @@
       ? options.payload
       : undefined;
     const method = options.method || (payload !== undefined ? 'POST' : 'GET');
+    const headers = {
+      ...(options.headers || {}),
+    };
+    if (payload !== undefined && !Object.prototype.hasOwnProperty.call(headers, 'Content-Type')) {
+      headers['Content-Type'] = 'application/json';
+    }
     const response = await fetch(path, {
       method,
       credentials: 'include',
-      headers: payload !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
       body: payload !== undefined ? JSON.stringify(payload) : undefined,
     });
 

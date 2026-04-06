@@ -102,7 +102,7 @@ function hydrateStaticText() {
     '.note',
     TEST_USERS_SEED.length > 0
       ? TEXT.note
-      : 'Dang nhap duoc xu ly boi may chu. Tai khoan thuong gioi han 1 phien.'
+      : 'Đăng nhập được xử lý bởi máy chủ. Tài khoản thường giới hạn 1 phiên.'
   );
   if (TEST_USERS_SEED.length > 0) {
     setText('.test-accounts h2', TEXT.seedHeading);

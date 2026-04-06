@@ -42,6 +42,19 @@ function createAuthService(options) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   }
 
+  function normalizeUserRole(value) {
+    return String(value || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user';
+  }
+
+  const ADMIN_EMAILS = new Set((config.AUTH_ADMIN_EMAILS || []).map((email) => normalizeEmail(email)));
+
+  function isAdminUser(user) {
+    if (!user) {
+      return false;
+    }
+    return normalizeUserRole(user.role) === 'admin' || ADMIN_EMAILS.has(normalizeEmail(user.email));
+  }
+
   function randomId(bytes = 16) {
     return crypto.randomBytes(bytes).toString('hex');
   }
@@ -126,11 +139,23 @@ function createAuthService(options) {
   }
 
   function toPublicUser(user) {
+    const role = isAdminUser(user) ? 'admin' : 'user';
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       createdAt: user.createdAt,
+      role,
+      isAdmin: role === 'admin',
+    };
+  }
+
+  function toPublicSession(session) {
+    return {
+      tokenSuffix: String(session?.token || '').slice(-8) || 'unknown',
+      createdAt: new Date(Number(session?.createdAt) || Date.now()).toISOString(),
+      lastSeenAt: new Date(Number(session?.lastSeenAt) || Date.now()).toISOString(),
+      expiresAt: new Date(Number(session?.expiresAt) || Date.now()).toISOString(),
     };
   }
 
@@ -152,6 +177,7 @@ function createAuthService(options) {
         name: normalizeDisplayName(parsed.name),
         passwordHash: parsed.passwordHash,
         createdAt: parsed.createdAt || new Date().toISOString(),
+        role: normalizeUserRole(parsed.role),
       };
     } catch (_error) {
       return null;
@@ -187,10 +213,11 @@ function createAuthService(options) {
     }
     return {
       id: doc.id,
-      email: doc.email,
-      name: doc.name,
+      email: normalizeEmail(doc.email),
+      name: normalizeDisplayName(doc.name),
       passwordHash: doc.passwordHash,
-      createdAt: doc.createdAt,
+      createdAt: doc.createdAt || new Date().toISOString(),
+      role: normalizeUserRole(doc.role),
     };
   }
 
@@ -359,6 +386,7 @@ function createAuthService(options) {
       ...user,
       email: normalizeEmail(user.email),
       name: normalizeDisplayName(user.name),
+      role: normalizeUserRole(user.role),
     };
 
     const mongoUsers = getMongoUsers();
@@ -389,6 +417,189 @@ function createAuthService(options) {
       return { ok: false, reason: 'exists' };
     }
     return { ok: true, user: next };
+  }
+
+  async function updateUser(user) {
+    const next = {
+      ...user,
+      email: normalizeEmail(user.email),
+      name: normalizeDisplayName(user.name),
+      role: normalizeUserRole(user.role),
+    };
+
+    const mongoUsers = getMongoUsers();
+    if (mongoUsers) {
+      await mongoUsers.updateOne(
+        { id: next.id },
+        {
+          $set: {
+            email: next.email,
+            name: next.name,
+            passwordHash: next.passwordHash,
+            role: next.role,
+          },
+        }
+      );
+      return next;
+    }
+
+    const redisDataClient = getRedisDataClient();
+    if (!redisDataClient) {
+      const previous = usersById.get(next.id) || null;
+      if (previous && previous.email !== next.email) {
+        usersByEmail.delete(previous.email);
+      }
+      usersByEmail.set(next.email, next);
+      usersById.set(next.id, next);
+      return next;
+    }
+
+    await redisDataClient.hSet(config.REDIS_USERS_KEY, next.email, JSON.stringify(next));
+    return next;
+  }
+
+  async function ensureSeedUser(seed) {
+    const existing = await getUserByEmail(seed.email);
+    if (!existing) {
+      const created = await createUser({
+        id: randomId(12),
+        email: normalizeEmail(seed.email),
+        name: normalizeDisplayName(seed.name),
+        passwordHash: hashPassword(seed.password),
+        createdAt: new Date().toISOString(),
+        role: normalizeUserRole(seed.role),
+      });
+      if (!created.ok) {
+        throw new Error(`Failed to seed auth user for ${seed.email}`);
+      }
+      return;
+    }
+
+    const nextRole = normalizeUserRole(seed.role);
+    const nextName = normalizeDisplayName(seed.name);
+    const hasExpectedPassword = verifyPassword(seed.password, existing.passwordHash);
+    const requiresUpdate =
+      existing.name !== nextName || existing.role !== nextRole || !hasExpectedPassword;
+
+    if (!requiresUpdate) {
+      return;
+    }
+
+    await updateUser({
+      ...existing,
+      name: nextName,
+      passwordHash: hasExpectedPassword ? existing.passwordHash : hashPassword(seed.password),
+      role: nextRole,
+    });
+  }
+
+  function sortSessionsByRecent(a, b) {
+    return Number(b?.lastSeenAt || 0) - Number(a?.lastSeenAt || 0);
+  }
+
+  async function listActiveSessionsForUser(userId) {
+    if (!userId) {
+      return [];
+    }
+
+    const now = Date.now();
+    const mongoSessions = getMongoSessions();
+    if (mongoSessions) {
+      const docs = await mongoSessions
+        .find({ userId, expiresAt: { $gt: now } })
+        .sort({ lastSeenAt: -1, expiresAt: -1 })
+        .toArray();
+      return docs
+        .map(mapMongoSession)
+        .filter((session) => session && session.expiresAt > now)
+        .sort(sortSessionsByRecent);
+    }
+
+    const redisDataClient = getRedisDataClient();
+    if (!redisDataClient) {
+      const matches = [];
+      for (const session of sessionsByToken.values()) {
+        if (!session) {
+          continue;
+        }
+        if (session.expiresAt <= now) {
+          await deleteSession(session.token, session);
+          continue;
+        }
+        if (session.userId === userId) {
+          matches.push(session);
+        }
+      }
+      return matches.sort(sortSessionsByRecent);
+    }
+
+    const sessionKeys = await redisDataClient.keys(`${config.REDIS_SESSION_PREFIX}*`);
+    if (sessionKeys.length === 0) {
+      return [];
+    }
+
+    const raws = await Promise.all(sessionKeys.map((key) => redisDataClient.get(key)));
+    const matches = [];
+    for (let index = 0; index < raws.length; index += 1) {
+      const raw = raws[index];
+      if (!raw) {
+        continue;
+      }
+
+      const session = parseAuthSession(raw);
+      if (!session) {
+        await redisDataClient.del(sessionKeys[index]);
+        continue;
+      }
+      if (session.expiresAt <= now) {
+        await deleteSession(session.token, session);
+        continue;
+      }
+      if (session.userId === userId) {
+        matches.push(session);
+      }
+    }
+
+    return matches.sort(sortSessionsByRecent);
+  }
+
+  async function disconnectSocketsForUser(userId) {
+    if (!userId) {
+      return 0;
+    }
+
+    clearPendingSessionRelease(userId);
+    const sockets = await getSockets();
+    const ownedSockets = sockets.filter((socket) => socket?.data?.auth?.userId === userId);
+    await Promise.all(
+      ownedSockets.map(async (socket) => {
+        try {
+          socket.disconnect(true);
+        } catch (_error) {
+          // Ignore disconnect failures during admin revocation.
+        }
+      })
+    );
+    return ownedSockets.length;
+  }
+
+  async function revokeSessionsForUser(userId, options = {}) {
+    if (!userId) {
+      return { revokedCount: 0, disconnectedSockets: 0 };
+    }
+
+    const sessions = await listActiveSessionsForUser(userId);
+    for (const session of sessions) {
+      await deleteSession(session.token, session);
+    }
+
+    const disconnectedSockets =
+      options.disconnectSockets === false ? 0 : await disconnectSocketsForUser(userId);
+
+    return {
+      revokedCount: sessions.length,
+      disconnectedSockets,
+    };
   }
 
   async function getUserSessionToken(userId) {
@@ -607,6 +818,13 @@ function createAuthService(options) {
     pendingSessionReleaseTimers.set(userId, timer);
   }
 
+  function shutdown() {
+    for (const timer of pendingSessionReleaseTimers.values()) {
+      clearTimeout(timer);
+    }
+    pendingSessionReleaseTimers.clear();
+  }
+
   async function createSessionForUser(user, options = {}) {
     const forceExistingSession = options.forceExistingSession === true;
     const allowConcurrentSeedSession =
@@ -644,17 +862,7 @@ function createAuthService(options) {
     }
 
     for (const seed of TEST_USERS_SEED) {
-      const user = {
-        id: randomId(12),
-        email: normalizeEmail(seed.email),
-        name: normalizeDisplayName(seed.name),
-        passwordHash: hashPassword(seed.password),
-        createdAt: new Date().toISOString(),
-      };
-      const created = await createUser(user);
-      if (!created.ok && created.reason !== 'exists') {
-        throw new Error(`Failed to seed auth user for ${seed.email}`);
-      }
+      await ensureSeedUser(seed);
     }
   }
 
@@ -728,16 +936,21 @@ function createAuthService(options) {
     getUserById,
     hashPassword,
     incrementAuthRateLimit,
+    isAdminUser,
     isMongoConnected,
     isSeedTestEmail,
     isValidEmail,
+    listActiveSessionsForUser,
     normalizeDisplayName,
     normalizeEmail,
     randomId,
     refreshSession,
+    revokeSessionsForUser,
     scheduleSessionRelease,
     setAuthCookie,
     setRetryAfter,
+    shutdown,
+    toPublicSession,
     toPublicUser,
     verifyPassword,
   };

@@ -35,12 +35,19 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  gap: 12px;
 }
 
 .top a {
   color: var(--accent);
   text-decoration: none;
   font-weight: 600;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .panel,
@@ -56,6 +63,17 @@ body {
   display: flex;
   gap: 8px;
   margin-top: 6px;
+}
+
+.panel-inline {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: end;
+}
+
+.token-controls {
+  min-width: 320px;
 }
 
 input,
@@ -77,6 +95,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .grid {
   margin-top: 12px;
   display: grid;
@@ -93,9 +116,96 @@ h2 {
   margin: 0 0 8px;
 }
 
+h3 {
+  margin: 0 0 8px;
+}
+
 ul {
   margin: 0;
   padding-left: 16px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: #4b5c74;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.subtle {
+  margin: 0;
+  color: #516277;
+}
+
+.subtle.error {
+  color: var(--error);
+}
+
+.subtle.success {
+  color: var(--ok-text);
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 10px;
+}
+
+.lookup-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.empty-state {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  color: #516277;
+  background: #fbfcff;
+}
+
+.lookup-result.is-hidden {
+  display: none;
+}
+
+.lookup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mini-card,
+.session-box {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: #fbfcff;
+}
+
+.session-box {
+  margin-top: 12px;
+}
+
+.session-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.session-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: white;
+}
+
+.session-item.empty {
+  color: #516277;
 }
 
 .warning-list {
@@ -146,8 +256,25 @@ ul {
 }
 
 @media (max-width: 700px) {
+  .top,
+  .panel-inline,
+  .section-head,
+  .lookup-form,
+  .top-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .lookup-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .token-controls {
+    min-width: 0;
   }
 
   .counter-grid {

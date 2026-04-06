@@ -1,12 +1,9 @@
-﻿const { spawn } = require('child_process');
-const http = require('http');
-const path = require('path');
 const assert = require('assert');
 const { io } = require('socket.io-client');
+const { startTestServer } = require('./helpers/server-harness.js');
 
 const TEST_PORT = 3101;
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
-const SERVER_PATH = path.join(__dirname, '..', 'src', 'server.js');
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,34 +18,6 @@ async function waitFor(condition, timeoutMs = 4000, intervalMs = 30) {
     await delay(intervalMs);
   }
   throw new Error('Timeout waiting for condition');
-}
-
-function waitForServerReady(timeoutMs = 6000) {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-
-    function probe() {
-      const req = http.get(`${BASE_URL}/health`, (res) => {
-        if (res.statusCode === 200) {
-          resolve();
-          return;
-        }
-        retry();
-      });
-
-      req.on('error', retry);
-    }
-
-    function retry() {
-      if (Date.now() - start > timeoutMs) {
-        reject(new Error('Server healthcheck timeout'));
-        return;
-      }
-      setTimeout(probe, 100);
-    }
-
-    probe();
-  });
 }
 
 function connectClient() {
@@ -75,38 +44,15 @@ function waitForConnect(socket) {
   });
 }
 
-async function stopServer(server) {
-  if (!server || server.exitCode !== null || server.killed) {
-    return;
-  }
-
-  const exited = new Promise((resolve) => {
-    server.once('exit', resolve);
-  });
-
-  server.kill();
-  await Promise.race([exited, delay(600)]);
-}
-
 async function run() {
-  const server = spawn(process.execPath, [SERVER_PATH], {
-    env: {
-      ...process.env,
-      PORT: String(TEST_PORT),
-      NODE_ENV: 'test',
-      ENABLE_REDIS: 'false',
-      AUTH_REQUIRED: 'false',
-      AUTH_REQUIRE_MONGO: 'false',
-      STRICT_CLUSTER_CONFIG: 'false',
-      MONGO_URL: '',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  let stderr = '';
-
-  server.stderr.on('data', (chunk) => {
-    stderr += chunk.toString();
+  const serverHandle = await startTestServer({
+    PORT: String(TEST_PORT),
+    NODE_ENV: 'test',
+    ENABLE_REDIS: 'false',
+    AUTH_REQUIRED: 'false',
+    AUTH_REQUIRE_MONGO: 'false',
+    STRICT_CLUSTER_CONFIG: 'false',
+    MONGO_URL: '',
   });
 
   let c1 = null;
@@ -114,8 +60,6 @@ async function run() {
   let c3 = null;
 
   try {
-    await waitForServerReady();
-
     c1 = connectClient();
     c2 = connectClient();
     c3 = connectClient();
@@ -142,19 +86,19 @@ async function run() {
 
     await waitFor(() => state.c1.length >= 3);
 
-    const meBefore = state.c1.find((p) => p.id === c1.id);
+    const meBefore = state.c1.find((player) => player.id === c1.id);
     assert(meBefore, 'Client 1 not found in player list');
 
     c1.emit('move', { direction: 'right' });
     await waitFor(() => {
-      const p = state.c2.find((player) => player.id === c1.id);
-      return Boolean(p && p.x >= meBefore.x);
+      const moved = state.c2.find((player) => player.id === c1.id);
+      return Boolean(moved && moved.x >= meBefore.x);
     });
 
     const c3Id = c3.id;
     c3.disconnect();
 
-    await waitFor(() => !state.c1.some((p) => p.id === c3Id));
+    await waitFor(() => !state.c1.some((player) => player.id === c3Id));
 
     console.log('PASS realtime smoke: connect/move/disconnect');
   } finally {
@@ -168,11 +112,7 @@ async function run() {
       c3.disconnect();
     }
 
-    await stopServer(server);
-
-    if (stderr.trim()) {
-      console.error(stderr.trim());
-    }
+    await serverHandle.stop();
   }
 }
 
