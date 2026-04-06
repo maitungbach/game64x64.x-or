@@ -5,6 +5,8 @@ const {
   getLoginUrl,
   logoutFromServer,
   normalizeEmail,
+  readSession,
+  setClientSession,
 } = window.Game64Auth;
 
 const LOGIN_URL = getLoginUrl('/admin');
@@ -328,11 +330,15 @@ async function handleLogout() {
 }
 
 async function bootstrap() {
+  const currentSession = readSession();
   const me = await fetchAuthMe();
   if (!me) {
     clearClientSession();
     redirectToLogin();
     return;
+  }
+  if (!currentSession || normalizeEmail(currentSession.email) !== normalizeEmail(me.email)) {
+    setClientSession(me);
   }
   if (!me.isAdmin) {
     clearClientSession();

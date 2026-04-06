@@ -1,8 +1,6 @@
 (function bootstrapGame64Auth(global) {
   const SESSION_KEY = 'game64x64:session';
-  const ACTIVE_SESSIONS_KEY = 'game64x64:active_sessions';
   const TAB_ID_KEY = 'game64x64:tab_id';
-  const ACTIVE_SESSION_TTL_MS = 15_000;
   const hostname = String(global.location?.hostname || '').toLowerCase();
   const EXPOSE_TEST_USERS =
     hostname === 'localhost' ||
@@ -104,137 +102,29 @@
     sessionStorage.removeItem(SESSION_KEY);
   }
 
-  function pruneExpiredLocks(locks) {
-    const now = Date.now();
-    for (const [email, lock] of Object.entries(locks)) {
-      if (
-        !lock ||
-        typeof lock.tabId !== 'string' ||
-        typeof lock.sessionToken !== 'string' ||
-        !Number.isFinite(Number(lock.updatedAt)) ||
-        now - Number(lock.updatedAt) > ACTIVE_SESSION_TTL_MS
-      ) {
-        delete locks[email];
-      }
-    }
-  }
-
-  function readActiveSessions() {
-    try {
-      const raw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
-      if (!raw) {
-        return {};
-      }
-
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return {};
-      }
-
-      pruneExpiredLocks(parsed);
-      return parsed;
-    } catch {
-      return {};
-    }
-  }
-
-  function writeActiveSessions(locks) {
-    localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(locks));
-  }
-
   function clearSeedAccountLocks() {
-    const locks = readActiveSessions();
-    let changed = false;
-    for (const email of SEED_TEST_EMAILS) {
-      if (locks[email]) {
-        delete locks[email];
-        changed = true;
-      }
-    }
-    if (changed) {
-      writeActiveSessions(locks);
-    }
+    // Client-side tab locks were removed. Server-side auth is now the source of truth.
   }
 
   function ensureOwnedAccountLock(session) {
-    if (!session || !session.email || !session.sessionToken) {
-      return false;
-    }
-
-    const email = normalizeEmail(session.email);
-    if (isSeedTestEmail(email)) {
-      return true;
-    }
-
-    const locks = readActiveSessions();
-    const lock = locks[email];
-    if (lock && (lock.tabId !== TAB_ID || lock.sessionToken !== session.sessionToken)) {
-      return false;
-    }
-
-    locks[email] = {
-      tabId: TAB_ID,
-      sessionToken: session.sessionToken,
-      updatedAt: Date.now(),
-    };
-    writeActiveSessions(locks);
-    return true;
+    return Boolean(session && session.email && session.sessionToken);
   }
 
-  function isLockedByAnotherTab(email) {
-    const normalizedEmail = normalizeEmail(email);
-    if (isSeedTestEmail(normalizedEmail)) {
-      return false;
-    }
-
-    const lock = readActiveSessions()[normalizedEmail];
-    if (!lock) {
-      return false;
-    }
-
-    return lock.tabId !== TAB_ID;
+  function isLockedByAnotherTab(_email) {
+    return false;
   }
 
-  function releaseOwnedAccountLock(session) {
-    if (!session || !session.email) {
-      return;
-    }
-
-    const email = normalizeEmail(session.email);
-    if (isSeedTestEmail(email)) {
-      return;
-    }
-
-    const locks = readActiveSessions();
-    const lock = locks[email];
-    if (!lock) {
-      return;
-    }
-    if (lock.tabId !== TAB_ID || lock.sessionToken !== session.sessionToken) {
-      return;
-    }
-
-    delete locks[email];
-    writeActiveSessions(locks);
+  function releaseOwnedAccountLock(_session) {
+    // Client-side tab locks were removed. Session cleanup happens on logout or server expiry.
   }
 
   function setClientSession(user) {
-    const existing = readSession();
-    if (existing && normalizeEmail(existing.email) !== normalizeEmail(user?.email)) {
-      releaseOwnedAccountLock(existing);
-    }
-
     const session = buildSession(user);
     writeSession(session);
-    ensureOwnedAccountLock(session);
     return session;
   }
 
-  function clearClientSession(options = {}) {
-    const existing = readSession();
-    if (options.releaseLock !== false) {
-      releaseOwnedAccountLock(existing);
-    }
+  function clearClientSession(_options = {}) {
     removeStoredSession();
   }
 
@@ -295,7 +185,6 @@
   }
 
   global.Game64Auth = Object.freeze({
-    ACTIVE_SESSIONS_KEY,
     SESSION_KEY,
     TAB_ID,
     TEST_USERS_SEED,

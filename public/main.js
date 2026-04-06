@@ -11,18 +11,14 @@ const statusEl = document.getElementById('status');
 const accountNameEl = document.getElementById('accountName');
 const authActionEl = document.getElementById('authAction');
 const {
-  ACTIVE_SESSIONS_KEY,
   clearClientSession,
-  clearSeedAccountLocks,
-  ensureOwnedAccountLock,
   fetchAuthMe,
   getLoginUrl,
   logoutFromServer,
   normalizeEmail,
   readSession,
-  releaseOwnedAccountLock,
+  setClientSession,
 } = window.Game64Auth;
-const LOCK_HEARTBEAT_MS = 4_000;
 const LOGIN_URL = getLoginUrl('/game.html');
 const AUTH_RETRY_DELAY_MS = 1200;
 const socket = io({
@@ -43,7 +39,6 @@ let playersById = new Map();
 let pendingInputs = [];
 let nextSeq = 1;
 let myServerPos = null;
-let lockHeartbeatTimer = null;
 let redirectingToAuth = false;
 
 const gridLayer = document.createElement('canvas');
@@ -58,14 +53,6 @@ function redirectToAuth() {
   }
   redirectingToAuth = true;
   window.location.replace(LOGIN_URL);
-}
-
-function stopLockHeartbeat() {
-  if (!lockHeartbeatTimer) {
-    return;
-  }
-  window.clearInterval(lockHeartbeatTimer);
-  lockHeartbeatTimer = null;
 }
 
 function resetRuntimeState() {
@@ -86,31 +73,10 @@ function handleSessionConflict(message, options = {}) {
   if (shouldLogoutServer) {
     logoutFromServer();
   }
-  stopLockHeartbeat();
   resetRuntimeState();
-  statusEl.textContent = message || 'Phiên đăng nhập không hợp lệ. Đang chuyển hướng...';
+  statusEl.textContent = message || 'Phien dang nhap khong hop le. Dang chuyen huong...';
   renderAccountBar();
   window.setTimeout(redirectToAuth, 150);
-}
-
-function startLockHeartbeat() {
-  stopLockHeartbeat();
-  lockHeartbeatTimer = window.setInterval(() => {
-    const session = readSession();
-    if (!session) {
-      handleSessionConflict('Phiên đăng nhập đã bị hủy.', {
-        logoutServer: false,
-        releaseLock: false,
-      });
-      return;
-    }
-
-    if (!ensureOwnedAccountLock(session)) {
-      handleSessionConflict('Tài khoản đang được sử dụng ở tab khác.', {
-        logoutServer: false,
-      });
-    }
-  }, LOCK_HEARTBEAT_MS);
 }
 
 function renderAccountBar() {
@@ -120,15 +86,15 @@ function renderAccountBar() {
 
   const session = readSession();
   if (!session) {
-    accountNameEl.textContent = 'Chưa đăng nhập';
-    authActionEl.textContent = 'Đăng nhập / Đăng ký';
+    accountNameEl.textContent = 'Chua dang nhap';
+    authActionEl.textContent = 'Dang nhap / Dang ky';
     authActionEl.href = LOGIN_URL;
     authActionEl.onclick = null;
     return;
   }
 
-  accountNameEl.textContent = `Xin chào, ${session.name || session.email}`;
-  authActionEl.textContent = 'Đăng xuất';
+  accountNameEl.textContent = `Xin chao, ${session.name || session.email}`;
+  authActionEl.textContent = 'Dang xuat';
   authActionEl.href = '#';
   authActionEl.onclick = async (event) => {
     event.preventDefault();
@@ -137,9 +103,8 @@ function renderAccountBar() {
     if (socket.connected) {
       socket.disconnect();
     }
-    stopLockHeartbeat();
     resetRuntimeState();
-    statusEl.textContent = 'Đã đăng xuất. Đang chuyển đến trang đăng nhập...';
+    statusEl.textContent = 'Da dang xuat. Dang chuyen den trang dang nhap...';
     renderAccountBar();
     redirectToAuth();
   };
@@ -401,18 +366,18 @@ function drawPlayersFrame() {
 
 function updateStatusText() {
   if (!readSession()) {
-    statusEl.textContent = 'Bạn cần đăng nhập để chơi.';
+    statusEl.textContent = 'Ban can dang nhap de choi.';
     return;
   }
 
   const me = myId ? playersById.get(myId) : null;
   const total = playersById.size;
   if (me) {
-    statusEl.textContent = `Bạn: (${Math.round(me.targetX)}, ${Math.round(me.targetY)}) | Màu: ${me.color} | Trực tuyến: ${total} | Chờ xử lý: ${pendingInputs.length}`;
+    statusEl.textContent = `Ban: (${Math.round(me.targetX)}, ${Math.round(me.targetY)}) | Mau: ${me.color} | Truc tuyen: ${total} | Cho xu ly: ${pendingInputs.length}`;
     return;
   }
 
-  statusEl.textContent = `Đang kết nối... | Trực tuyến: ${total}`;
+  statusEl.textContent = `Dang ket noi... | Truc tuyen: ${total}`;
 }
 
 function renderFrame() {
@@ -456,30 +421,7 @@ window.addEventListener('keydown', (event) => {
   queueMove(direction);
 });
 
-window.addEventListener('storage', (event) => {
-  if (event.key !== ACTIVE_SESSIONS_KEY) {
-    return;
-  }
-
-  const session = readSession();
-  if (!session) {
-    handleSessionConflict('Phiên đăng nhập đã bị thay đổi.', {
-      logoutServer: false,
-      releaseLock: false,
-    });
-    return;
-  }
-
-  if (!ensureOwnedAccountLock(session)) {
-    handleSessionConflict('Tài khoản đang được sử dụng ở tab khác.', {
-      logoutServer: false,
-    });
-  }
-});
-
 window.addEventListener('beforeunload', () => {
-  const session = readSession();
-  releaseOwnedAccountLock(session);
   if (socket.connected || socket.active) {
     socket.disconnect();
   }
@@ -522,36 +464,36 @@ socket.on('playerJoined', applyJoinEvent);
 socket.on('playerLeft', applyLeftEvent);
 socket.on('connect_error', (error) => {
   if (String(error?.message || '').toLowerCase() === 'unauthorized') {
-    handleSessionConflict('Phiên đăng nhập không hợp lệ.', {
+    handleSessionConflict('Phien dang nhap khong hop le.', {
       logoutServer: false,
     });
     return;
   }
-  statusEl.textContent = 'Kết nối tạm thời gián đoạn. Hệ thống đang tự kết nối lại...';
+  statusEl.textContent = 'Ket noi tam thoi gian doan. He thong dang tu ket noi lai...';
 });
 
 async function bootstrapAuthAndConnect() {
-  const initialSession = readSession();
-  if (!initialSession) {
-    statusEl.textContent = 'Bạn cần đăng nhập để vào game. Đang chuyển hướng...';
-    window.setTimeout(redirectToAuth, 150);
-    return;
-  }
-
-  if (!ensureOwnedAccountLock(initialSession)) {
-    statusEl.textContent = 'Tài khoản đang được sử dụng ở tab khác.';
-    window.setTimeout(redirectToAuth, 300);
-    return;
-  }
+  let initialSession = readSession();
 
   try {
     const me = await fetchAuthMe();
-    if (!me || normalizeEmail(me.email) !== normalizeEmail(initialSession.email)) {
-      handleSessionConflict('Phiên đăng nhập đã hết hạn hoặc bị thay đổi.');
+    if (!me) {
+      statusEl.textContent = 'Ban can dang nhap de vao game. Dang chuyen huong...';
+      window.setTimeout(redirectToAuth, 150);
+      return;
+    }
+
+    if (!initialSession || normalizeEmail(me.email) !== normalizeEmail(initialSession.email)) {
+      initialSession = setClientSession(me);
+      renderAccountBar();
+    }
+
+    if (!initialSession) {
+      handleSessionConflict('Phien dang nhap da het han hoac bi thay doi.');
       return;
     }
   } catch {
-    statusEl.textContent = 'Không thể xác thực tài khoản. Đang thử lại...';
+    statusEl.textContent = 'Khong the xac thuc tai khoan. Dang thu lai...';
     window.setTimeout(() => {
       if (!redirectingToAuth) {
         bootstrapAuthAndConnect();
@@ -560,12 +502,10 @@ async function bootstrapAuthAndConnect() {
     return;
   }
 
-  startLockHeartbeat();
   socket.connect();
 }
 
 drawGridLayer();
 renderAccountBar();
-clearSeedAccountLocks();
 renderFrame();
 bootstrapAuthAndConnect();
