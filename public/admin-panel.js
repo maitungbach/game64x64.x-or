@@ -60,7 +60,9 @@ const state = {
 
 function setText(node, value) {
   if (node) {
-    node.textContent = String(value ?? '-');
+    const next = String(value ?? '-');
+    node.textContent = next;
+    node.title = next;
   }
 }
 
