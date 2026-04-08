@@ -4,6 +4,9 @@ const CANVAS_SIZE = GRID_SIZE * CELL_SIZE;
 const LOCAL_LERP = 0.55;
 const REMOTE_LERP = 0.28;
 const SNAP_DISTANCE = 4;
+const FRAME_MS_60HZ = 1000 / 60;
+const MOVE_REPEAT_INITIAL_MS = 120;
+const MOVE_REPEAT_MS = 70;
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -40,6 +43,11 @@ let pendingInputs = [];
 let nextSeq = 1;
 let myServerPos = null;
 let redirectingToAuth = false;
+let heldDirections = new Map();
+let heldDirectionOrder = 0;
+let moveRepeatTimer = null;
+let nextMoveRepeatAt = 0;
+let lastFrameAt = 0;
 
 const gridLayer = document.createElement('canvas');
 gridLayer.width = CANVAS_SIZE;
@@ -60,6 +68,14 @@ function resetRuntimeState() {
   pendingInputs = [];
   myServerPos = null;
   myId = null;
+  heldDirections.clear();
+  heldDirectionOrder = 0;
+  nextMoveRepeatAt = 0;
+  lastFrameAt = 0;
+  if (moveRepeatTimer !== null) {
+    window.clearTimeout(moveRepeatTimer);
+    moveRepeatTimer = null;
+  }
 }
 
 function handleSessionConflict(message, options = {}) {
@@ -318,7 +334,7 @@ function applyLeftEvent(payload) {
 }
 
 function queueMove(direction) {
-  if (!myId) {
+  if (!myId || !socket.connected) {
     return;
   }
 
@@ -334,15 +350,19 @@ function queueMove(direction) {
   const predicted = getNextPosition({ x: me.targetX, y: me.targetY }, direction);
   me.targetX = predicted.x;
   me.targetY = predicted.y;
-  me.renderX = predicted.x;
-  me.renderY = predicted.y;
 
   socket.emit('move', { direction, seq });
 }
 
-function drawPlayersFrame() {
+function getFrameLerp(baseLerp, deltaMs) {
+  const frameScale = Math.max(deltaMs / FRAME_MS_60HZ, 0);
+  return 1 - Math.pow(1 - baseLerp, frameScale);
+}
+
+function drawPlayersFrame(deltaMs) {
   for (const player of playersById.values()) {
-    const lerp = player.id === myId ? LOCAL_LERP : REMOTE_LERP;
+    const baseLerp = player.id === myId ? LOCAL_LERP : REMOTE_LERP;
+    const lerp = getFrameLerp(baseLerp, deltaMs);
     player.renderX += (player.targetX - player.renderX) * lerp;
     player.renderY += (player.targetY - player.renderY) * lerp;
 
@@ -381,9 +401,13 @@ function updateStatusText() {
 }
 
 function renderFrame() {
+  const now = window.performance.now();
+  const deltaMs = lastFrameAt > 0 ? Math.min(now - lastFrameAt, 100) : FRAME_MS_60HZ;
+  lastFrameAt = now;
+
   ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
   ctx.drawImage(gridLayer, 0, 0);
-  drawPlayersFrame();
+  drawPlayersFrame(deltaMs);
   updateStatusText();
   window.requestAnimationFrame(renderFrame);
 }
@@ -404,6 +428,64 @@ function keyToDirection(key) {
   return null;
 }
 
+function getHeldDirection() {
+  let nextDirection = null;
+  let latestOrder = -1;
+
+  for (const [direction, order] of heldDirections.entries()) {
+    if (order > latestOrder) {
+      latestOrder = order;
+      nextDirection = direction;
+    }
+  }
+
+  return nextDirection;
+}
+
+function stopMoveRepeatLoop() {
+  nextMoveRepeatAt = 0;
+  if (moveRepeatTimer !== null) {
+    window.clearTimeout(moveRepeatTimer);
+    moveRepeatTimer = null;
+  }
+}
+
+function scheduleMoveRepeat(delayMs) {
+  if (heldDirections.size === 0) {
+    stopMoveRepeatLoop();
+    return;
+  }
+
+  if (moveRepeatTimer !== null) {
+    window.clearTimeout(moveRepeatTimer);
+  }
+
+  nextMoveRepeatAt = window.performance.now() + delayMs;
+  moveRepeatTimer = window.setTimeout(function runMoveRepeat() {
+    moveRepeatTimer = null;
+
+    const direction = getHeldDirection();
+    if (!direction || document.hidden) {
+      stopMoveRepeatLoop();
+      return;
+    }
+
+    const now = window.performance.now();
+    if (now < nextMoveRepeatAt) {
+      scheduleMoveRepeat(nextMoveRepeatAt - now);
+      return;
+    }
+
+    queueMove(direction);
+    scheduleMoveRepeat(MOVE_REPEAT_MS);
+  }, Math.max(0, delayMs));
+}
+
+function clearHeldDirections() {
+  heldDirections.clear();
+  stopMoveRepeatLoop();
+}
+
 window.addEventListener('keydown', (event) => {
   if (!readSession()) {
     redirectToAuth();
@@ -418,10 +500,41 @@ window.addEventListener('keydown', (event) => {
   }
 
   event.preventDefault();
+  if (event.repeat) {
+    return;
+  }
+
+  heldDirectionOrder += 1;
+  heldDirections.set(direction, heldDirectionOrder);
   queueMove(direction);
+  scheduleMoveRepeat(MOVE_REPEAT_INITIAL_MS);
+});
+
+window.addEventListener('keyup', (event) => {
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const direction = keyToDirection(key);
+  if (!direction) {
+    return;
+  }
+
+  heldDirections.delete(direction);
+  if (heldDirections.size === 0) {
+    stopMoveRepeatLoop();
+    return;
+  }
+
+  scheduleMoveRepeat(MOVE_REPEAT_MS);
+});
+
+window.addEventListener('blur', clearHeldDirections);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearHeldDirections();
+  }
 });
 
 window.addEventListener('beforeunload', () => {
+  clearHeldDirections();
   if (socket.connected || socket.active) {
     socket.disconnect();
   }
@@ -435,6 +548,7 @@ socket.on('connect', () => {
 });
 
 socket.on('disconnect', () => {
+  clearHeldDirections();
   pendingInputs = [];
   myServerPos = null;
 });
