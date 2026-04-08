@@ -11,19 +11,34 @@ function registerSystemRoutes(deps) {
   } = deps;
 
   async function requireAdminApiAuth(req, res) {
-    const authContext = await auth.getAuthenticatedUserFromRequest(req);
+    const authContext = await getAdminAuthContextFromRequest(req);
     if (!authContext) {
-      auth.clearAuthCookie(res);
-      res.status(401).json({ ok: false, message: 'Unauthorized' });
-      return null;
-    }
+      const hasSession = Boolean(await auth.getAuthenticatedUserFromRequest(req));
+      if (!hasSession) {
+        auth.clearAuthCookie(res);
+        res.status(401).json({ ok: false, message: 'Unauthorized' });
+        return null;
+      }
 
-    if (!(await getAdminAuthContextFromRequest(req))) {
       res.status(403).json({ ok: false, message: 'Admin access required' });
       return null;
     }
 
     return authContext;
+  }
+
+  function createHealthSnapshot(playersCount) {
+    return {
+      ok: true,
+      version: config.APP_VERSION,
+      nodeId: config.NODE_ID,
+      startedAt: config.STARTED_AT,
+      players: playersCount,
+      redisEnabled: config.ENABLE_REDIS,
+      authStorage: auth.getAuthStorageMode(),
+      mongoConnected: auth.isMongoConnected(),
+      configWarnings: config.getConfigWarnings(),
+    };
   }
 
   async function handleLiveness(_req, res) {
@@ -37,16 +52,23 @@ function registerSystemRoutes(deps) {
     }
 
     const list = await game.getPlayersList();
+    res.json(createHealthSnapshot(list.length));
+  }
+
+  async function handleAdminDashboard(req, res) {
+    const authContext = await requireAdminApiAuth(req, res);
+    if (!authContext) {
+      return;
+    }
+
+    const list = await game.getPlayersList();
     res.json({
       ok: true,
-      version: config.APP_VERSION,
-      nodeId: config.NODE_ID,
-      startedAt: config.STARTED_AT,
-      players: list.length,
-      redisEnabled: config.ENABLE_REDIS,
-      authStorage: auth.getAuthStorageMode(),
-      mongoConnected: auth.isMongoConnected(),
-      configWarnings: config.getConfigWarnings(),
+      health: createHealthSnapshot(list.length),
+      stats: {
+        ok: true,
+        ...getStatsSnapshot(list.length),
+      },
     });
   }
 
@@ -136,6 +158,7 @@ function registerSystemRoutes(deps) {
 
   app.get('/health', asyncRoute(handleLiveness));
   app.get('/api/health', asyncRoute(handleAdminHealth));
+  app.get('/api/admin/dashboard', asyncRoute(handleAdminDashboard));
   app.get('/stats', asyncRoute(handleStats));
   app.get('/api/stats', asyncRoute(handleStats));
   app.get('/api/admin/user-by-email', asyncRoute(handleAdminUserLookup));

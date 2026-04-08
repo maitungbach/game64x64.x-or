@@ -1,6 +1,8 @@
 /* eslint-disable no-console */
 const crypto = require('crypto');
 
+const REQUEST_AUTH_CONTEXT_KEY = Symbol('game64x64.requestAuthContext');
+
 function createAuthService(options) {
   const {
     config,
@@ -912,7 +914,15 @@ function createAuthService(options) {
   }
 
   async function getAuthenticatedUserFromRequest(req) {
-    return await getAuthenticatedUserByToken(getAuthTokenFromRequest(req));
+    if (req && Object.prototype.hasOwnProperty.call(req, REQUEST_AUTH_CONTEXT_KEY)) {
+      return req[REQUEST_AUTH_CONTEXT_KEY];
+    }
+
+    const authContext = await getAuthenticatedUserByToken(getAuthTokenFromRequest(req));
+    if (req) {
+      req[REQUEST_AUTH_CONTEXT_KEY] = authContext;
+    }
+    return authContext;
   }
 
   return {

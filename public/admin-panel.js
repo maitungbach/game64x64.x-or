@@ -10,7 +10,9 @@ const {
 } = window.Game64Auth;
 
 const LOGIN_URL = getLoginUrl('/admin');
-const REFRESH_INTERVAL_MS = 2000;
+const REFRESH_INTERVAL_MS = 5000;
+const HIDDEN_REFRESH_INTERVAL_MS = 15000;
+const MAX_REFRESH_INTERVAL_MS = 30000;
 
 const el = {
   token: document.getElementById('token'),
@@ -61,12 +63,24 @@ const state = {
   lookupEmail: '',
   refreshInFlight: false,
   refreshTimer: null,
+  refreshDelayMs: REFRESH_INTERVAL_MS,
+  signatures: {
+    counters: '',
+    warnings: '',
+    lookupSessions: '',
+  },
 };
 
 function setText(node, value) {
-  if (node) {
-    const next = String(value ?? '-');
+  if (!node) {
+    return;
+  }
+
+  const next = String(value ?? '-');
+  if (node.textContent !== next) {
     node.textContent = next;
+  }
+  if (node.title !== next) {
     node.title = next;
   }
 }
@@ -81,7 +95,10 @@ function redirectToGame() {
 
 function setLookupMessage(text, type = '') {
   setText(el.lookupMessage, text);
-  el.lookupMessage.className = `subtle${type ? ` ${type}` : ''}`;
+  const nextClassName = `subtle${type ? ` ${type}` : ''}`;
+  if (el.lookupMessage.className !== nextClassName) {
+    el.lookupMessage.className = nextClassName;
+  }
 }
 
 function formatDate(value) {
@@ -95,27 +112,64 @@ function formatDate(value) {
   return date.toLocaleString();
 }
 
+function createCounterNode(key, value) {
+  const box = document.createElement('div');
+  box.className = 'counter';
+
+  const keyNode = document.createElement('div');
+  keyNode.className = 'k';
+  keyNode.textContent = key;
+
+  const valueNode = document.createElement('div');
+  valueNode.className = 'v';
+  valueNode.textContent = String(value);
+
+  box.append(keyNode, valueNode);
+  return box;
+}
+
+function createSessionLabel(label, value, addBreak = true) {
+  const fragment = document.createDocumentFragment();
+  const strong = document.createElement('strong');
+  strong.textContent = `${label}:`;
+  fragment.append(strong, ` ${value}`);
+  if (addBreak) {
+    fragment.append(document.createElement('br'));
+  }
+  return fragment;
+}
+
 function renderCounters(counters) {
   const entries = Object.entries(counters || {});
-  el.counters.innerHTML = '';
-
-  for (const [key, value] of entries) {
-    const box = document.createElement('div');
-    box.className = 'counter';
-    box.innerHTML = `<div class="k">${key}</div><div class="v">${value}</div>`;
-    el.counters.appendChild(box);
+  const signature = JSON.stringify(entries);
+  if (signature === state.signatures.counters) {
+    return;
   }
+
+  state.signatures.counters = signature;
+  const fragment = document.createDocumentFragment();
+  for (const [key, value] of entries) {
+    fragment.appendChild(createCounterNode(key, value));
+  }
+  el.counters.replaceChildren(fragment);
 }
 
 function renderWarnings(warnings) {
   const items = Array.isArray(warnings) ? warnings : [];
-  el.healthWarnings.innerHTML = '';
+  const signature = JSON.stringify(items);
+  if (signature === state.signatures.warnings) {
+    return;
+  }
+
+  state.signatures.warnings = signature;
+  const fragment = document.createDocumentFragment();
 
   if (items.length === 0) {
     const item = document.createElement('li');
     item.className = 'warning-item is-ok';
     item.textContent = 'Khong co canh bao cau hinh.';
-    el.healthWarnings.appendChild(item);
+    fragment.appendChild(item);
+    el.healthWarnings.replaceChildren(fragment);
     return;
   }
 
@@ -123,40 +177,61 @@ function renderWarnings(warnings) {
     const item = document.createElement('li');
     item.className = 'warning-item';
     item.textContent = warning;
-    el.healthWarnings.appendChild(item);
+    fragment.appendChild(item);
   }
+
+  el.healthWarnings.replaceChildren(fragment);
 }
 
 function renderLookupSessions(activeSessions) {
   const sessions = Array.isArray(activeSessions) ? activeSessions : [];
-  el.lookupSessions.innerHTML = '';
+  const signature = JSON.stringify(
+    sessions.map((session) => [
+      session?.tokenSuffix || '',
+      session?.createdAt || '',
+      session?.lastSeenAt || '',
+      session?.expiresAt || '',
+    ])
+  );
+  if (signature === state.signatures.lookupSessions) {
+    return;
+  }
+
+  state.signatures.lookupSessions = signature;
+  const fragment = document.createDocumentFragment();
 
   if (sessions.length === 0) {
     const item = document.createElement('li');
     item.className = 'session-item empty';
     item.textContent = 'Chua co session nao.';
-    el.lookupSessions.appendChild(item);
+    fragment.appendChild(item);
+    el.lookupSessions.replaceChildren(fragment);
     return;
   }
 
   for (const session of sessions) {
     const item = document.createElement('li');
     item.className = 'session-item';
-    item.innerHTML =
-      `<strong>token:</strong> ...${session.tokenSuffix}<br />` +
-      `<strong>created:</strong> ${formatDate(session.createdAt)}<br />` +
-      `<strong>last seen:</strong> ${formatDate(session.lastSeenAt)}<br />` +
-      `<strong>expires:</strong> ${formatDate(session.expiresAt)}`;
-    el.lookupSessions.appendChild(item);
+    item.append(
+      createSessionLabel('token', `...${session.tokenSuffix}`),
+      createSessionLabel('created', formatDate(session.createdAt)),
+      createSessionLabel('last seen', formatDate(session.lastSeenAt)),
+      createSessionLabel('expires', formatDate(session.expiresAt), false)
+    );
+    fragment.appendChild(item);
   }
+
+  el.lookupSessions.replaceChildren(fragment);
 }
 
 function resetLookupResult() {
   state.lookupUser = null;
   state.lookupEmail = '';
+  state.signatures.lookupSessions = '';
   el.lookupResult.classList.add('is-hidden');
   el.lookupEmpty.hidden = false;
   el.revokeSessions.disabled = true;
+  renderLookupSessions([]);
 }
 
 function renderLookupResult(payload) {
@@ -207,71 +282,83 @@ async function ensureAccess(result) {
   return true;
 }
 
+function renderHealth(health) {
+  setText(el.healthOk, health?.ok);
+  setText(el.healthPlayers, health?.players);
+  setText(el.healthRedis, health?.redisEnabled);
+  setText(el.healthVersion, health?.version || '-');
+  setText(el.healthNodeId, health?.nodeId || '-');
+  setText(el.healthAuthStorage, health?.authStorage || '-');
+  setText(el.healthMongoConnected, health?.mongoConnected);
+  renderWarnings(health?.configWarnings);
+}
+
+function renderStats(stats) {
+  const uptimeSec = Number.isFinite(stats?.uptimeSec) ? `${stats.uptimeSec}s` : '-';
+  setText(el.uptime, uptimeSec);
+  setText(el.pid, stats?.pid);
+  setText(el.statsVersion, stats?.version || '-');
+  setText(el.statsNodeId, stats?.nodeId || '-');
+  setText(el.playersOnline, stats?.playersOnline);
+  setText(el.socketsOnline, stats?.socketsOnline);
+  renderCounters(stats?.counters);
+}
+
+function getScheduledRefreshDelay(preferredDelayMs = null) {
+  if (document.hidden) {
+    return HIDDEN_REFRESH_INTERVAL_MS;
+  }
+  if (typeof preferredDelayMs === 'number') {
+    return Math.max(0, preferredDelayMs);
+  }
+  return state.refreshDelayMs;
+}
+
 async function refreshDashboard() {
   if (state.refreshInFlight) {
-    return;
+    return false;
   }
 
   state.refreshInFlight = true;
 
   try {
-    const health = await callApi('/api/health');
-    if (!(await ensureAccess(health))) {
-      return;
+    const dashboard = await callApi('/api/admin/dashboard');
+    if (!(await ensureAccess(dashboard))) {
+      return false;
     }
 
-    if (health.ok && health.data) {
-      setText(el.healthOk, health.data.ok);
-      setText(el.healthPlayers, health.data.players);
-      setText(el.healthRedis, health.data.redisEnabled);
-      setText(el.healthVersion, health.data.version || '-');
-      setText(el.healthNodeId, health.data.nodeId || '-');
-      setText(el.healthAuthStorage, health.data.authStorage || '-');
-      setText(el.healthMongoConnected, health.data.mongoConnected);
-      renderWarnings(health.data.configWarnings);
+    if (!dashboard.ok || !dashboard.data?.health || !dashboard.data?.stats) {
+      setText(el.error, `Loi dashboard ${dashboard.status}.`);
+      state.refreshDelayMs = Math.min(state.refreshDelayMs * 2, MAX_REFRESH_INTERVAL_MS);
+      return false;
     }
 
-    const headers = {};
-    if (state.token) {
-      headers['x-stats-token'] = state.token;
-    }
-
-    const stats = await callApi('/api/stats', { headers });
-    if (!(await ensureAccess(stats))) {
-      return;
-    }
-
-    if (stats.ok && stats.data) {
-      setText(el.uptime, `${stats.data.uptimeSec}s`);
-      setText(el.pid, stats.data.pid);
-      setText(el.statsVersion, stats.data.version || '-');
-      setText(el.statsNodeId, stats.data.nodeId || '-');
-      setText(el.playersOnline, stats.data.playersOnline);
-      setText(el.socketsOnline, stats.data.socketsOnline);
-      renderCounters(stats.data.counters);
-      setText(el.error, '-');
-    } else {
-      setText(el.error, `Loi thong ke ${stats.status}.`);
-    }
-
+    renderHealth(dashboard.data.health);
+    renderStats(dashboard.data.stats);
+    setText(el.error, '-');
     setText(el.lastUpdate, new Date().toLocaleString());
+    state.refreshDelayMs = REFRESH_INTERVAL_MS;
+    return true;
   } catch (_error) {
     setText(el.error, 'Khong the cap nhat dashboard.');
+    state.refreshDelayMs = Math.min(state.refreshDelayMs * 2, MAX_REFRESH_INTERVAL_MS);
+    return false;
   } finally {
     state.refreshInFlight = false;
   }
 }
 
-function scheduleDashboardRefresh(delayMs = REFRESH_INTERVAL_MS) {
+function scheduleDashboardRefresh(delayMs = null) {
   if (state.refreshTimer) {
     window.clearTimeout(state.refreshTimer);
   }
 
+  const nextDelayMs = getScheduledRefreshDelay(delayMs);
   state.refreshTimer = window.setTimeout(async () => {
     state.refreshTimer = null;
     await refreshDashboard();
     scheduleDashboardRefresh();
-  }, delayMs);
+  }, nextDelayMs);
 }
 
 async function lookupUser(email) {
@@ -344,10 +431,32 @@ async function handleRevokeSessions() {
 function applyTokenState() {
   state.token = el.token.value.trim();
   if (state.token) {
-    setText(el.authStatus, 'Dang dung quyen admin session va gui kem x-stats-token.');
+    setText(el.authStatus, 'Dashboard dang dung snapshot admin. Dang kiem tra STATS_TOKEN cho /api/stats.');
   } else {
-    setText(el.authStatus, 'Dang dung quyen admin session cho /api/health va /api/stats.');
+    setText(el.authStatus, 'Dashboard dang dung snapshot admin gom health va stats trong mot request.');
   }
+}
+
+async function verifyStatsToken() {
+  if (!state.token) {
+    return;
+  }
+
+  const result = await callApi('/api/stats', {
+    headers: {
+      'x-stats-token': state.token,
+    },
+  });
+  if (!(await ensureAccess(result))) {
+    return;
+  }
+
+  if (result.ok) {
+    setText(el.authStatus, 'Dashboard dang dung snapshot admin. STATS_TOKEN hop le cho /api/stats.');
+    return;
+  }
+
+  setText(el.authStatus, `Dashboard dang dung snapshot admin. STATS_TOKEN tra ve ${result.status}.`);
 }
 
 async function handleLogout() {
@@ -375,6 +484,7 @@ async function bootstrap() {
   }
 
   state.currentAdmin = me;
+  applyTokenState();
   setText(el.adminWelcome, `${me.name || me.email} (${me.email})`);
   await refreshDashboard();
   scheduleDashboardRefresh();
@@ -382,11 +492,16 @@ async function bootstrap() {
 
 el.applyToken.addEventListener('click', async () => {
   applyTokenState();
+  await verifyStatsToken();
   await refreshDashboard();
+  scheduleDashboardRefresh();
 });
 el.lookupForm.addEventListener('submit', handleLookupSubmit);
 el.refreshLookup.addEventListener('click', handleLookupRefresh);
 el.revokeSessions.addEventListener('click', handleRevokeSessions);
 el.logoutBtn.addEventListener('click', handleLogout);
+document.addEventListener('visibilitychange', () => {
+  scheduleDashboardRefresh(document.hidden ? HIDDEN_REFRESH_INTERVAL_MS : 0);
+});
 
 bootstrap();

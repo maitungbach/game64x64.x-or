@@ -13,7 +13,7 @@ Xem [RELEASE-CHECKLIST.md](/c:/workspace/game64x64.x-or/docs/RELEASE-CHECKLIST.m
   - Tra cuu user theo email
   - Thu hoi session va ngat socket cua user
 
-Dashboard poll moi 2 giay.
+Dashboard poll moi 5 giay khi tab dang mo, va giam tan suat khi tab bi an.
 
 ## Bao ve /api/stats
 Neu dat `STATS_TOKEN`, endpoint `/api/stats` se yeu cau header:
@@ -29,6 +29,7 @@ Trang `/admin` co o nhap token de gui kem header nay khi can.
 ## Endpoint
 - `GET /health`: liveness check toi thieu
 - `GET /api/health`: health check chi tiet, yeu cau admin
+- `GET /api/admin/dashboard`: snapshot admin gom health + stats, yeu cau admin
 - `GET /api/stats`: runtime stats (co the can token)
 - `GET /api/admin/user-by-email?email=<email>`: tra cuu user va session active
 - `POST /api/admin/user/revoke-sessions`: thu hoi session user

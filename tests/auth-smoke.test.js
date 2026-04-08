@@ -304,6 +304,13 @@ async function run() {
         'Anonymous /api/health should require admin auth'
       );
 
+      const anonAdminDashboard = await requestJson('GET', '/api/admin/dashboard');
+      assert.strictEqual(
+        anonAdminDashboard.statusCode,
+        401,
+        'Anonymous /api/admin/dashboard should require admin auth'
+      );
+
       const nonAdminLogin = await requestJson('POST', '/api/auth/login', {
         email: 'tester02@example.com',
         password: 'Test123!',
@@ -319,6 +326,13 @@ async function run() {
         nonAdminHealth.statusCode,
         403,
         'Non-admin should be blocked from /api/health'
+      );
+
+      const nonAdminDashboard = await requestJson('GET', '/api/admin/dashboard', null, nonAdminCookie);
+      assert.strictEqual(
+        nonAdminDashboard.statusCode,
+        403,
+        'Non-admin should be blocked from /api/admin/dashboard'
       );
 
       const nonAdminStats = await requestJson('GET', '/api/stats', null, nonAdminCookie);
@@ -345,6 +359,20 @@ async function run() {
       const adminHealth = await requestJson('GET', '/api/health', null, adminCookie);
       assert.strictEqual(adminHealth.statusCode, 200, 'Admin should access /api/health');
       assert.strictEqual(adminHealth.body?.authStorage, 'mongo', 'Admin health should report Mongo');
+
+      const adminDashboard = await requestJson('GET', '/api/admin/dashboard', null, adminCookie);
+      assert.strictEqual(adminDashboard.statusCode, 200, 'Admin should access /api/admin/dashboard');
+      assert.strictEqual(adminDashboard.body?.ok, true, 'Admin dashboard should return ok=true');
+      assert.strictEqual(
+        adminDashboard.body?.health?.authStorage,
+        'mongo',
+        'Admin dashboard health should report Mongo'
+      );
+      assert.strictEqual(
+        typeof adminDashboard.body?.stats?.uptimeSec,
+        'number',
+        'Admin dashboard stats should include uptimeSec'
+      );
 
       const adminStats = await requestJson('GET', '/api/stats', null, adminCookie);
       assert.strictEqual(adminStats.statusCode, 200, 'Admin should access /api/stats without token');
