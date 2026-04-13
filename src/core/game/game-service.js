@@ -2,13 +2,28 @@
 function createGameService(options) {
   const { io, stats, config, getRedisDataClient } = options;
 
-  const players = new Map();
+const players = new Map();
   const lastMoveAt = new Map();
+  const rooms = new Map();
   const VALID_DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
+  const ROOM_ID_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const DEFAULT_ROOM_SIZE = 4;
+  const DEFAULT_GAME_DURATION_SEC = 300;
   let broadcastTimer = null;
   let broadcastPending = false;
   let broadcastInFlight = false;
   let shuttingDown = false;
+  let roomIdCounter = 0;
+
+  function generateRoomId() {
+    roomIdCounter += 1;
+    let id = '';
+    const charsLen = ROOM_ID_CHARS.length;
+    for (let i = 0; i < 4; i += 1) {
+      id += ROOM_ID_CHARS.charAt(Math.floor(Math.random() * charsLen));
+    }
+    return id + String(roomIdCounter % 100).padStart(2, '0');
+  }
 
   function randomInt(maxExclusive) {
     return Math.floor(Math.random() * maxExclusive);
@@ -617,10 +632,142 @@ function createGameService(options) {
     lastMoveAt.clear();
   }
 
+  function createRoom(hostId, options = {}) {
+    const id = generateRoomId();
+    const room = {
+      id,
+      hostId,
+      name: options.name || `Room ${id}`,
+      maxPlayers: Math.max(2, Math.min(Number(options.maxPlayers) || DEFAULT_ROOM_SIZE, 16)),
+      gameDurationSec: Number(options.gameDurationSec) || DEFAULT_GAME_DURATION_SEC,
+      status: 'waiting',
+      players: new Set([hostId]),
+      scores: new Map(),
+      createdAt: Date.now(),
+      startedAt: null,
+      endsAt: null,
+    };
+    room.scores.set(hostId, 0);
+    rooms.set(id, room);
+    return room;
+  }
+
+  function getRoomById(roomId) {
+    return rooms.get(roomId) || null;
+  }
+
+  function getRoomPlayers(roomId) {
+    const room = rooms.get(roomId);
+    if (!room) {
+      return [];
+    }
+    return Array.from(room.players);
+  }
+
+  function joinRoom(roomId, playerId) {
+    const room = rooms.get(roomId);
+    if (!room) {
+      return { ok: false, reason: 'room_not_found' };
+    }
+    if (room.status !== 'waiting') {
+      return { ok: false, reason: 'room_already_started' };
+    }
+    if (room.players.size >= room.maxPlayers) {
+      return { ok: false, reason: 'room_full' };
+    }
+    if (room.players.has(playerId)) {
+      return { ok: true, room };
+    }
+    room.players.add(playerId);
+    room.scores.set(playerId, 0);
+    return { ok: true, room };
+  }
+
+  function leaveRoom(roomId, playerId) {
+    const room = rooms.get(roomId);
+    if (!room) {
+      return { ok: false, reason: 'room_not_found' };
+    }
+    room.players.delete(playerId);
+    room.scores.delete(playerId);
+    if (room.players.size === 0 || playerId === room.hostId) {
+      rooms.delete(roomId);
+      return { ok: true, closed: true };
+    }
+    return { ok: true, closed: false };
+  }
+
+  function startRoomGame(roomId) {
+    const room = rooms.get(roomId);
+    if (!room) {
+      return { ok: false, reason: 'room_not_found' };
+    }
+    if (room.status !== 'waiting') {
+      return { ok: false, reason: 'room_already_started' };
+    }
+    if (room.players.size < 2) {
+      return { ok: false, reason: 'need_more_players' };
+    }
+    room.status = 'playing';
+    room.startedAt = Date.now();
+    room.endsAt = room.startedAt + room.gameDurationSec * 1000;
+    return { ok: true, room };
+  }
+
+  function addRoomScore(roomId, playerId, points) {
+    const room = rooms.get(roomId);
+    if (!room || room.status !== 'playing') {
+      return null;
+    }
+    const current = room.scores.get(playerId) || 0;
+    room.scores.set(playerId, current + points);
+    return room.scores.get(playerId);
+  }
+
+  function getRoomLeaderboard(roomId) {
+    const room = rooms.get(roomId);
+    if (!room) {
+      return [];
+    }
+    const entries = Array.from(room.scores.entries());
+    entries.sort((a, b) => b[1] - a[1]);
+    return entries.map(([id, score], index) => ({
+      rank: index + 1,
+      playerId: id,
+      score,
+    }));
+  }
+
+  function endRoomGame(roomId) {
+    const room = rooms.get(roomId);
+    if (!room) {
+      return null;
+    }
+    room.status = 'ended';
+    return getRoomLeaderboard(roomId);
+  }
+
+  function listRooms() {
+    const result = [];
+    for (const room of rooms.values()) {
+      result.push({
+        id: room.id,
+        name: room.name,
+        hostId: room.hostId,
+        maxPlayers: room.maxPlayers,
+        currentPlayers: room.players.size,
+        status: room.status,
+        createdAt: room.createdAt,
+      });
+    }
+    return result;
+  }
+
   return {
     VALID_DIRECTIONS,
     connectPlayer,
     consumeMoveRateLimit,
+    createRoom,
     disconnectPlayer,
     emitMoveAck,
     emitPlayerMoved,
@@ -628,8 +775,14 @@ function createGameService(options) {
     getNextPosition,
     getPlayerById,
     getPlayersList,
+    getRoomById,
+    getRoomLeaderboard,
+    getRoomPlayers,
     getSocketsOnlineCount,
     isOccupied,
+    joinRoom,
+    leaveRoom,
+    listRooms,
     movePlayerRedis,
     movePlayerTo,
     normalizeCoord,
@@ -638,6 +791,7 @@ function createGameService(options) {
     savePlayer,
     scheduleEmitPlayers,
     shutdown,
+    startRoomGame,
     sweepGhostPlayers,
     usesRedisStorage,
   };

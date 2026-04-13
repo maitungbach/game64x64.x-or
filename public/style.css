@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg: #f4f7fb;
   --panel: #ffffff;
   --text: #1a1f2b;
@@ -66,4 +66,84 @@ a {
 
 #status {
   font-weight: 600;
+}
+
+.room-status {
+  font-weight: 600;
+  color: #0f766e;
+  min-height: 1.5em;
+}
+
+.room-timer {
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: #dc2626;
+  min-height: 1.5em;
+}
+
+.room-controls {
+  margin: 10px 0;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.room-controls button {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  border: 1px solid #9fb4d3;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.room-controls button:hover {
+  background: #f1f5f9;
+}
+
+.room-controls input {
+  width: 90px;
+  padding: 8px 10px;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  text-align: center;
+  border: 1px solid #9fb4d3;
+  border-radius: 6px;
+}
+
+.leaderboard-overlay {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #fff;
+  border: 1px solid #9fb4d3;
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 140px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+}
+
+.leaderboard-overlay h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.leaderboard-overlay ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.leaderboard-overlay li {
+  padding: 4px 0;
+  font-size: 0.9rem;
+}
+
+.leaderboard-overlay .current-player {
+  font-weight: 700;
+  color: #0f766e;
 }

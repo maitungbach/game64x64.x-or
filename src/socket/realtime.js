@@ -78,6 +78,8 @@ function configureRealtime(io, deps) {
           return;
         }
 
+        const roomId = socket?.data?.roomId || null;
+        let scored = false;
         if (game.usesRedisStorage()) {
           const moved = await game.movePlayerRedis(socket.id, direction);
           if (moved.state === 'occupied') {
@@ -90,6 +92,13 @@ function configureRealtime(io, deps) {
             return;
           }
           const updatedPlayer = moved.player || player;
+          if (roomId) {
+            const room = game.getRoomById(roomId);
+            if (room && room.status === 'playing') {
+              game.addRoomScore(roomId, socket.id, 1);
+              scored = true;
+            }
+          }
           game.emitPlayerMoved(updatedPlayer, seq);
           game.emitMoveAck(socket, seq, true, null, updatedPlayer);
           await game.emitPlayersNow();
@@ -105,10 +114,21 @@ function configureRealtime(io, deps) {
           player.x = next.x;
           player.y = next.y;
           await game.savePlayer(player);
+          if (roomId) {
+            const room = game.getRoomById(roomId);
+            if (room && room.status === 'playing') {
+              game.addRoomScore(roomId, socket.id, 1);
+              scored = true;
+            }
+          }
           game.emitPlayerMoved(player, seq);
           game.emitMoveAck(socket, seq, true, null, player);
           await game.emitPlayersNow();
           stats.movesApplied += 1;
+        }
+        if (scored && roomId) {
+          const leaderboard = game.getRoomLeaderboard(roomId);
+          io.to(roomId).emit('roomScoreUpdate', { leaderboard });
         }
       })().catch((error) => {
         stats.errorsTotal += 1;
@@ -122,12 +142,72 @@ function configureRealtime(io, deps) {
       (async () => {
         const userId = socket?.data?.auth?.userId || null;
         const authToken = socket?.data?.authToken || null;
+        const roomId = socket?.data?.roomId || null;
+        if (roomId) {
+          game.leaveRoom(roomId, userId || socket.id);
+          socket.to(roomId).emit('roomPlayerLeft', { playerId: userId || socket.id });
+        }
         await game.disconnectPlayer(socket.id);
         auth.scheduleSessionRelease(userId, authToken);
       })().catch((error) => {
         stats.errorsTotal += 1;
         console.error('[disconnect] failed:', error);
       });
+    });
+
+    socket.on('joinRoom', (payload) => {
+      const userId = socket?.data?.auth?.userId || socket.id;
+      const roomId = String(payload?.roomId || '').toUpperCase();
+      if (!roomId) {
+        socket.emit('roomError', { message: 'Missing roomId' });
+        return;
+      }
+      const result = game.joinRoom(roomId, userId);
+      if (!result.ok) {
+        socket.emit('roomError', { message: result.reason });
+        return;
+      }
+      socket.data.roomId = roomId;
+      socket.join(roomId);
+      socket.emit('roomJoined', { roomId, room: { id: result.room.id, status: result.room.status, players: result.room.players.size } });
+      socket.to(roomId).emit('roomPlayerJoined', { playerId: userId, playerCount: result.room.players.size });
+    });
+
+    socket.on('leaveRoom', (payload) => {
+      const userId = socket?.data?.auth?.userId || socket.id;
+      const roomId = socket?.data?.roomId || null;
+      if (!roomId) {
+        return;
+      }
+      const result = game.leaveRoom(roomId, userId);
+      socket.data.roomId = null;
+      socket.leave(roomId);
+      if (result.closed) {
+        io.to(roomId).emit('roomClosed', { roomId });
+      } else {
+        socket.to(roomId).emit('roomPlayerLeft', { playerId: userId });
+      }
+      socket.emit('roomLeft', { roomId });
+    });
+
+    socket.on('startRoom', (payload) => {
+      const userId = socket?.data?.auth?.userId || null;
+      const roomId = socket?.data?.roomId || null;
+      if (!roomId || !userId) {
+        socket.emit('roomError', { message: 'Not in a room' });
+        return;
+      }
+      const room = game.getRoomById(roomId);
+      if (!room || room.hostId !== userId) {
+        socket.emit('roomError', { message: 'Only host can start the game' });
+        return;
+      }
+      const result = game.startRoomGame(roomId);
+      if (!result.ok) {
+        socket.emit('roomError', { message: result.reason });
+        return;
+      }
+      io.to(roomId).emit('roomStarted', { roomId, endsAt: result.room.endsAt, durationSec: result.room.gameDurationSec });
     });
   });
 }

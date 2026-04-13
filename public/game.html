@@ -13,11 +13,25 @@
         <a id="authAction" href="/auth.html">Đăng nhập / Đăng ký</a>
       </div>
       <h1>Sân chơi sắc màu 64x64</h1>
+      <p id="roomStatus" class="room-status" aria-live="polite"></p>
+      <p id="roomTimer" class="room-timer" aria-live="polite"></p>
+      <div class="room-controls">
+        <button id="btnCreateRoom">Tạo phòng</button>
+        <input type="text" id="inputRoomCode" placeholder="Mã phòng" maxlength="6" />
+        <button id="btnJoinRoom">Vào phòng</button>
+        <button id="btnStartGame" hidden>Bắt đầu game</button>
+        <button id="btnLeaveRoom" hidden>Ra phòng</button>
+      </div>
       <p>Dùng phím mũi tên hoặc WASD để di chuyển pixel theo thời gian thực.</p>
       <p><a href="/admin">Mở trang bảng điều khiển quản trị</a></p>
       <canvas id="game" width="640" height="640" aria-label="Lưới 64x64"></canvas>
       <p id="status" aria-live="polite"></p>
     </main>
+
+    <div id="leaderboardOverlay" class="leaderboard-overlay" hidden>
+      <h2>Bảng điểm</h2>
+      <ul id="leaderboardList"></ul>
+    </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="auth-shared.js?v=20260406-2"></script>

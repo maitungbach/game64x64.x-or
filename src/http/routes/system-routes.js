@@ -160,6 +160,97 @@ function registerSystemRoutes(deps) {
     });
   }
 
+  async function handleListRooms(_req, res) {
+    res.json({ ok: true, rooms: game.listRooms() });
+  }
+
+  async function handleCreateRoom(req, res) {
+    const authContext = await auth.getAuthenticatedUserFromRequest(req);
+    if (!authContext) {
+      res.status(401).json({ ok: false, message: 'Unauthorized' });
+      return;
+    }
+    if (!auth.isTrustedCsrfRequest(req)) {
+      res.status(403).json({ ok: false, message: 'Untrusted request origin' });
+      return;
+    }
+
+    const room = game.createRoom(authContext.user.id, req.body);
+    res.json({ ok: true, room: { id: room.id, name: room.name, maxPlayers: room.maxPlayers, status: room.status } });
+  }
+
+  async function handleJoinRoom(req, res) {
+    const authContext = await auth.getAuthenticatedUserFromRequest(req);
+    if (!authContext) {
+      res.status(401).json({ ok: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const roomId = String(req.params.roomId || '').toUpperCase();
+    if (!roomId) {
+      res.status(400).json({ ok: false, message: 'Missing roomId' });
+      return;
+    }
+
+    const result = game.joinRoom(roomId, authContext.user.id);
+    res.json(result);
+  }
+
+  async function handleLeaveRoom(req, res) {
+    const authContext = await auth.getAuthenticatedUserFromRequest(req);
+    if (!authContext) {
+      res.status(401).json({ ok: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const roomId = String(req.params.roomId || '').toUpperCase();
+    if (!roomId) {
+      res.status(400).json({ ok: false, message: 'Missing roomId' });
+      return;
+    }
+
+    const result = game.leaveRoom(roomId, authContext.user.id);
+    res.json(result);
+  }
+
+  async function handleStartRoom(req, res) {
+    const authContext = await auth.getAuthenticatedUserFromRequest(req);
+    if (!authContext) {
+      res.status(401).json({ ok: false, message: 'Unauthorized' });
+      return;
+    }
+    if (!auth.isTrustedCsrfRequest(req)) {
+      res.status(403).json({ ok: false, message: 'Untrusted request origin' });
+      return;
+    }
+
+    const roomId = String(req.params.roomId || '').toUpperCase();
+    if (!roomId) {
+      res.status(400).json({ ok: false, message: 'Missing roomId' });
+      return;
+    }
+
+    const room = game.getRoomById(roomId);
+    if (!room || room.hostId !== authContext.user.id) {
+      res.status(403).json({ ok: false, message: 'Only host can start the game' });
+      return;
+    }
+
+    const result = game.startRoomGame(roomId);
+    res.json(result);
+  }
+
+  async function handleRoomLeaderboard(req, res) {
+    const roomId = String(req.params.roomId || '').toUpperCase();
+    if (!roomId) {
+      res.status(400).json({ ok: false, message: 'Missing roomId' });
+      return;
+    }
+
+    const leaderboard = game.getRoomLeaderboard(roomId);
+    res.json({ ok: true, leaderboard });
+  }
+
   app.get('/health', asyncRoute(handleLiveness));
   app.get('/api/health', asyncRoute(handleAdminHealth));
   app.get('/api/admin/dashboard', asyncRoute(handleAdminDashboard));
@@ -167,6 +258,12 @@ function registerSystemRoutes(deps) {
   app.get('/api/stats', asyncRoute(handleStats));
   app.get('/api/admin/user-by-email', asyncRoute(handleAdminUserLookup));
   app.post('/api/admin/user/revoke-sessions', asyncRoute(handleAdminUserSessionRevoke));
+  app.get('/api/rooms', asyncRoute(handleListRooms));
+  app.post('/api/rooms', asyncRoute(handleCreateRoom));
+  app.post('/api/rooms/:roomId/join', asyncRoute(handleJoinRoom));
+  app.post('/api/rooms/:roomId/leave', asyncRoute(handleLeaveRoom));
+  app.post('/api/rooms/:roomId/start', asyncRoute(handleStartRoom));
+  app.get('/api/rooms/:roomId/leaderboard', asyncRoute(handleRoomLeaderboard));
 }
 
 module.exports = {
