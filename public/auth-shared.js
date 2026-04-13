@@ -46,6 +46,7 @@
 
   function buildSession(user) {
     return {
+      id: String(user?.id || '').trim() || null,
       name: String(user?.name || user?.email || '').trim(),
       email: normalizeEmail(user?.email),
       tabId: TAB_ID,

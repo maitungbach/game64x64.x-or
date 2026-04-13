@@ -2,9 +2,10 @@
 function createGameService(options) {
   const { io, stats, config, getRedisDataClient } = options;
 
-const players = new Map();
+  const players = new Map();
   const lastMoveAt = new Map();
   const rooms = new Map();
+  const roomEndTimers = new Map();
   const VALID_DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
   const ROOM_ID_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const DEFAULT_ROOM_SIZE = 4;
@@ -620,11 +621,72 @@ const players = new Map();
     return io.of('/').sockets.size;
   }
 
+  function clearRoomEndTimer(roomId) {
+    const timer = roomEndTimers.get(roomId);
+    if (!timer) {
+      return;
+    }
+    clearTimeout(timer);
+    roomEndTimers.delete(roomId);
+  }
+
+  function endRoomGame(roomId) {
+    const room = rooms.get(roomId);
+    if (!room || room.status !== 'playing') {
+      return null;
+    }
+
+    room.status = 'ended';
+    clearRoomEndTimer(roomId);
+
+    return {
+      room,
+      leaderboard: getRoomLeaderboard(roomId),
+    };
+  }
+
+  function scheduleRoomEnd(roomId) {
+    clearRoomEndTimer(roomId);
+
+    const room = rooms.get(roomId);
+    if (!room || !Number.isFinite(room.endsAt)) {
+      return;
+    }
+
+    const delayMs = Math.max(0, room.endsAt - Date.now());
+    const timer = setTimeout(() => {
+      roomEndTimers.delete(roomId);
+
+      try {
+        const result = endRoomGame(roomId);
+        if (!result) {
+          return;
+        }
+        io.to(roomId).emit('roomEnded', {
+          roomId,
+          leaderboard: result.leaderboard,
+        });
+      } catch (error) {
+        stats.errorsTotal += 1;
+        console.error('[room-end] failed:', error);
+      }
+    }, delayMs);
+
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+
+    roomEndTimers.set(roomId, timer);
+  }
+
   function shutdown() {
     shuttingDown = true;
     if (broadcastTimer) {
       clearTimeout(broadcastTimer);
       broadcastTimer = null;
+    }
+    for (const roomId of roomEndTimers.keys()) {
+      clearRoomEndTimer(roomId);
     }
     broadcastPending = false;
     broadcastInFlight = false;
@@ -691,6 +753,7 @@ const players = new Map();
     room.players.delete(playerId);
     room.scores.delete(playerId);
     if (room.players.size === 0 || playerId === room.hostId) {
+      clearRoomEndTimer(roomId);
       rooms.delete(roomId);
       return { ok: true, closed: true };
     }
@@ -711,6 +774,7 @@ const players = new Map();
     room.status = 'playing';
     room.startedAt = Date.now();
     room.endsAt = room.startedAt + room.gameDurationSec * 1000;
+    scheduleRoomEnd(roomId);
     return { ok: true, room };
   }
 
@@ -738,15 +802,6 @@ const players = new Map();
     }));
   }
 
-  function endRoomGame(roomId) {
-    const room = rooms.get(roomId);
-    if (!room) {
-      return null;
-    }
-    room.status = 'ended';
-    return getRoomLeaderboard(roomId);
-  }
-
   function listRooms() {
     const result = [];
     for (const room of rooms.values()) {
@@ -765,10 +820,12 @@ const players = new Map();
 
   return {
     VALID_DIRECTIONS,
+    addRoomScore,
     connectPlayer,
     consumeMoveRateLimit,
     createRoom,
     disconnectPlayer,
+    endRoomGame,
     emitMoveAck,
     emitPlayerMoved,
     emitPlayersNow,

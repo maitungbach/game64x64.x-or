@@ -11,8 +11,8 @@ const MOVE_REPEAT_MS = 70;
 let currentRoomId = null;
 let isRoomHost = false;
 let roomGameEndsAt = null;
-let roomGameDurationSec = 0;
 let currentLeaderboard = [];
+let roomPhase = 'idle';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -20,6 +20,7 @@ const statusEl = document.getElementById('status');
 const accountNameEl = document.getElementById('accountName');
 const authActionEl = document.getElementById('authAction');
 const {
+  callApi,
   clearClientSession,
   fetchAuthMe,
   getLoginUrl,
@@ -415,6 +416,7 @@ function renderFrame() {
   ctx.drawImage(gridLayer, 0, 0);
   drawPlayersFrame(deltaMs);
   updateStatusText();
+  renderRoomTimer();
   window.requestAnimationFrame(renderFrame);
 }
 
@@ -602,8 +604,17 @@ const btnStartGame = document.getElementById('btnStartGame');
 const btnLeaveRoom = document.getElementById('btnLeaveRoom');
 const inputRoomCode = document.getElementById('inputRoomCode');
 
+function resetRoomState() {
+  currentRoomId = null;
+  isRoomHost = false;
+  roomGameEndsAt = null;
+  currentLeaderboard = [];
+  roomPhase = 'idle';
+  renderLeaderboard();
+}
+
 function updateRoomUI() {
-  if (!currentRoomId) {
+  if (!currentRoomId || roomPhase === 'idle') {
     roomStatusEl.textContent = '';
     roomTimerEl.textContent = '';
     btnCreateRoom.hidden = false;
@@ -614,7 +625,7 @@ function updateRoomUI() {
     leaderboardOverlayEl.hidden = true;
     return;
   }
-  if (roomGameEndsAt) {
+  if (roomPhase === 'playing') {
     roomStatusEl.textContent = `Phòng: ${currentRoomId} | Đang chơi`;
     btnCreateRoom.hidden = true;
     btnJoinRoom.hidden = true;
@@ -622,7 +633,21 @@ function updateRoomUI() {
     btnLeaveRoom.hidden = false;
     inputRoomCode.hidden = true;
     leaderboardOverlayEl.hidden = false;
-  } else {
+    return;
+  }
+
+  if (roomPhase === 'ended') {
+    roomStatusEl.textContent = 'Phong da ket thuc';
+    btnCreateRoom.hidden = true;
+    btnJoinRoom.hidden = true;
+    btnStartGame.hidden = true;
+    btnLeaveRoom.hidden = false;
+    inputRoomCode.hidden = true;
+    leaderboardOverlayEl.hidden = false;
+    return;
+  }
+
+  {
     roomStatusEl.textContent = `Phòng: ${currentRoomId} | Đang chờ... ${isRoomHost ? '(Host)' : ''}`;
     roomTimerEl.textContent = '';
     btnCreateRoom.hidden = true;
@@ -638,8 +663,8 @@ function formatTimeRemaining() {
   if (!roomGameEndsAt) {
     return '';
   }
-  const remaining = roomGameEndsAt - Date.now();
-  if (remaining <= 0) {
+  const remaining = Math.max(0, roomGameEndsAt - Date.now());
+  if (remaining === 0) {
     return 'Hết giờ!';
   }
   const sec = Math.floor(remaining / 1000);
@@ -649,16 +674,16 @@ function formatTimeRemaining() {
 }
 
 function renderRoomTimer() {
-  if (!roomGameEndsAt) {
+  if (roomPhase === 'ended') {
+    roomTimerEl.textContent = 'Thoi gian: Het gio!';
+    return;
+  }
+
+  if (roomPhase !== 'playing' || !roomGameEndsAt) {
     roomTimerEl.textContent = '';
     return;
   }
   roomTimerEl.textContent = `Thời gian: ${formatTimeRemaining()}`;
-  if (roomGameEndsAt - Date.now() <= 0) {
-    // Time's up, notify server to end the game
-    socket.emit('endRoom');
-    roomGameEndsAt = null; // Will be updated by server response
-  }
 }
 
 function renderLeaderboard() {
@@ -666,15 +691,35 @@ function renderLeaderboard() {
     leaderboardListEl.innerHTML = '<li>Chưa có điểm</li>';
     return;
   }
+  const currentUserId = readSession()?.id || null;
   leaderboardListEl.replaceChildren();
   for (const entry of currentLeaderboard) {
     const li = document.createElement('li');
     li.textContent = `#${entry.rank} - Điểm: ${entry.score}`;
-    if (entry.playerId === socket.id) {
+    if (currentUserId && entry.playerId === currentUserId) {
       li.className = 'current-player';
     }
     leaderboardListEl.appendChild(li);
   }
+}
+
+async function fetchJson(path, options = {}) {
+  const payload =
+    typeof options.body === 'string' && options.body
+      ? JSON.parse(options.body)
+      : options.body;
+  const result = await callApi(path, {
+    method: options.method,
+    headers: options.headers,
+    payload,
+  });
+  return {
+    ok: result.ok,
+    status: result.status,
+    async json() {
+      return result.data;
+    },
+  };
 }
 
 function createRoom() {
@@ -684,6 +729,9 @@ function createRoom() {
       if (data.ok && data.room) {
         currentRoomId = data.room.id;
         isRoomHost = true;
+        roomPhase = 'waiting';
+        currentLeaderboard = [];
+        renderLeaderboard();
         socket.emit('joinRoom', { roomId: currentRoomId });
         updateRoomUI();
       } else {
@@ -705,6 +753,9 @@ function joinRoom(roomId) {
   }
   currentRoomId = roomId;
   isRoomHost = false;
+  roomPhase = 'waiting';
+  currentLeaderboard = [];
+  renderLeaderboard();
   socket.emit('joinRoom', { roomId: currentRoomId });
   updateRoomUI();
 }
@@ -721,11 +772,7 @@ function leaveRoom() {
     return;
   }
   socket.emit('leaveRoom', {});
-  currentRoomId = null;
-  isRoomHost = false;
-  roomGameEndsAt = null;
-  roomGameDurationSec = 0;
-  currentLeaderboard = [];
+  resetRoomState();
   updateRoomUI();
 }
 
@@ -744,13 +791,14 @@ if (btnLeaveRoom) {
 
 socket.on('roomJoined', (data) => {
   currentRoomId = data.roomId;
+  roomPhase = data.room?.status === 'playing' ? 'playing' : 'waiting';
   roomStatusEl.textContent = `Đã vào phòng: ${data.roomId}`;
   updateRoomUI();
 });
 
 socket.on('roomStarted', (data) => {
   roomGameEndsAt = data.endsAt;
-  roomGameDurationSec = data.durationSec;
+  roomPhase = 'playing';
   updateRoomUI();
 });
 
@@ -763,19 +811,31 @@ socket.on('roomPlayerJoined', (data) => {
   roomStatusEl.textContent = `Người chơi mới vào phòng (${data.playerCount})`;
 });
 
-socket.on('roomPlayerLeft', (data) => {
+socket.on('roomPlayerLeft', (_data) => {
   roomStatusEl.textContent = `Người chơi rời phòng`;
 });
 
-socket.on('roomClosed', (data) => {
-  currentRoomId = null;
+socket.on('roomEnded', (data) => {
+  roomPhase = 'ended';
   roomGameEndsAt = null;
+  currentLeaderboard = data.leaderboard || [];
+  renderLeaderboard();
+  updateRoomUI();
+});
+
+socket.on('roomLeft', (_data) => {
+  resetRoomState();
+  updateRoomUI();
+});
+
+socket.on('roomClosed', (_data) => {
+  resetRoomState();
   updateRoomUI();
   roomStatusEl.textContent = 'Phòng đã đóng';
 });
 
 socket.on('roomError', (data) => {
-  currentRoomId = null;
+  resetRoomState();
   updateRoomUI();
   roomStatusEl.textContent = 'Lỗi: ' + (data.message || 'unknown');
 });

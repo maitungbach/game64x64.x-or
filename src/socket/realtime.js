@@ -79,6 +79,7 @@ function configureRealtime(io, deps) {
         }
 
         const roomId = socket?.data?.roomId || null;
+        const roomPlayerId = socket?.data?.auth?.userId || socket.id;
         let scored = false;
         if (game.usesRedisStorage()) {
           const moved = await game.movePlayerRedis(socket.id, direction);
@@ -95,7 +96,7 @@ function configureRealtime(io, deps) {
           if (roomId) {
             const room = game.getRoomById(roomId);
             if (room && room.status === 'playing') {
-              game.addRoomScore(roomId, socket.id, 1);
+              game.addRoomScore(roomId, roomPlayerId, 1);
               scored = true;
             }
           }
@@ -117,7 +118,7 @@ function configureRealtime(io, deps) {
           if (roomId) {
             const room = game.getRoomById(roomId);
             if (room && room.status === 'playing') {
-              game.addRoomScore(roomId, socket.id, 1);
+              game.addRoomScore(roomId, roomPlayerId, 1);
               scored = true;
             }
           }
@@ -144,8 +145,12 @@ function configureRealtime(io, deps) {
         const authToken = socket?.data?.authToken || null;
         const roomId = socket?.data?.roomId || null;
         if (roomId) {
-          game.leaveRoom(roomId, userId || socket.id);
-          socket.to(roomId).emit('roomPlayerLeft', { playerId: userId || socket.id });
+          const result = game.leaveRoom(roomId, userId || socket.id);
+          if (result.closed) {
+            socket.to(roomId).emit('roomClosed', { roomId });
+          } else {
+            socket.to(roomId).emit('roomPlayerLeft', { playerId: userId || socket.id });
+          }
         }
         await game.disconnectPlayer(socket.id);
         auth.scheduleSessionRelease(userId, authToken);
@@ -173,7 +178,7 @@ function configureRealtime(io, deps) {
       socket.to(roomId).emit('roomPlayerJoined', { playerId: userId, playerCount: result.room.players.size });
     });
 
-    socket.on('leaveRoom', (payload) => {
+    socket.on('leaveRoom', (_payload) => {
       const userId = socket?.data?.auth?.userId || socket.id;
       const roomId = socket?.data?.roomId || null;
       if (!roomId) {
@@ -190,7 +195,7 @@ function configureRealtime(io, deps) {
       socket.emit('roomLeft', { roomId });
     });
 
-    socket.on('startRoom', (payload) => {
+    socket.on('startRoom', (_payload) => {
       const userId = socket?.data?.auth?.userId || null;
       const roomId = socket?.data?.roomId || null;
       if (!roomId || !userId) {
@@ -208,6 +213,23 @@ function configureRealtime(io, deps) {
         return;
       }
       io.to(roomId).emit('roomStarted', { roomId, endsAt: result.room.endsAt, durationSec: result.room.gameDurationSec });
+    });
+
+    socket.on('endRoom', () => {
+      const roomId = socket?.data?.roomId || null;
+      if (!roomId) {
+        return;
+      }
+
+      const result = game.endRoomGame(roomId);
+      if (!result) {
+        return;
+      }
+
+      io.to(roomId).emit('roomEnded', {
+        roomId,
+        leaderboard: result.leaderboard,
+      });
     });
   });
 }

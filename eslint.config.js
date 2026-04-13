@@ -7,7 +7,7 @@ const importPlugin = require('eslint-plugin-import');
 
 module.exports = [
   {
-    ignores: ['node_modules/**', 'logs/**', 'tmp-*.log', 'coverage/**', '.git/**'],
+    ignores: ['node_modules/**', 'logs/**', 'tmp-*.log', 'coverage/**', '.git/**', '.kilo/**'],
   },
   js.configs.recommended,
   {
