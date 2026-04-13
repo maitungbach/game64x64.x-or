@@ -28,6 +28,7 @@ function createServerRuntime(options = {}) {
   const config = createRuntimeConfig(packageJson);
 
   const app = express();
+  app.set('trust proxy', config.TRUST_PROXY);
   const server = http.createServer(app);
   const io = new Server(server, {
     transports: ['websocket'],
@@ -87,7 +88,7 @@ function createServerRuntime(options = {}) {
 
   async function isStatsAuthorized(req) {
     if (!config.STATS_TOKEN) {
-      return true;
+      return Boolean(await getAdminAuthContextFromRequest(req));
     }
     if (req.get('x-stats-token') === config.STATS_TOKEN) {
       return true;
@@ -142,7 +143,9 @@ function createServerRuntime(options = {}) {
     ]);
 
     io.adapter(createAdapter(redisPubClient, redisSubClient));
-    console.log(`[startup] Redis enabled at ${config.REDIS_URL}. Socket.io adapter active.`);
+    console.log(
+      `[startup] Redis enabled at ${config.getRedactedRedisUrl()}. Socket.io adapter active.`
+    );
     await game.rebuildRedisCellsIndex();
   }
 

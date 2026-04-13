@@ -24,18 +24,27 @@ function setText(node, value) {
 
 function renderCounters(counters) {
   const entries = Object.entries(counters || {});
-  el.counters.innerHTML = '';
+  el.counters.replaceChildren();
 
   for (const [key, value] of entries) {
     const box = document.createElement('div');
     box.className = 'counter';
-    box.innerHTML = `<div class="k">${key}</div><div class="v">${value}</div>`;
+    const keyNode = document.createElement('div');
+    keyNode.className = 'k';
+    keyNode.textContent = String(key);
+    const valueNode = document.createElement('div');
+    valueNode.className = 'v';
+    valueNode.textContent = String(value);
+    box.append(keyNode, valueNode);
     el.counters.appendChild(box);
   }
 }
 
 async function fetchJson(path, options = {}) {
-  const response = await fetch(path, options);
+  const response = await fetch(path, {
+    credentials: 'include',
+    ...options,
+  });
   let data = null;
   try {
     data = await response.json();
@@ -57,7 +66,7 @@ Object.assign(el, {
 
 function renderWarnings(warnings) {
   const items = Array.isArray(warnings) ? warnings : [];
-  el.healthWarnings.innerHTML = '';
+  el.healthWarnings.replaceChildren();
 
   if (items.length === 0) {
     const item = document.createElement('li');

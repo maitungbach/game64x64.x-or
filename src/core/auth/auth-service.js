@@ -121,12 +121,73 @@ function createAuthService(options) {
   }
 
   function getRequestIp(req) {
-    const forwarded = String(req.get('x-forwarded-for') || '').trim();
-    if (forwarded) {
-      const first = forwarded.split(',')[0];
-      return normalizeIp(first);
-    }
     return normalizeIp(req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress);
+  }
+
+  function readHeader(source, name) {
+    const normalized = String(name || '').toLowerCase();
+    if (!normalized || !source) {
+      return '';
+    }
+    if (typeof source.get === 'function') {
+      return String(source.get(normalized) || source.get(name) || '');
+    }
+    const headers = source.headers || {};
+    return String(headers[normalized] || headers[name] || '');
+  }
+
+  function normalizeHost(value) {
+    return String(value || '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .find(Boolean);
+  }
+
+  function isTrustedOriginRequest(source) {
+    const sourceOrigin = readHeader(source, 'origin').trim();
+    if (!sourceOrigin) {
+      return true;
+    }
+
+    const expectedHost = normalizeHost(
+      readHeader(source, 'x-forwarded-host') || readHeader(source, 'host')
+    );
+    if (!expectedHost) {
+      return false;
+    }
+
+    try {
+      const parsed = new URL(sourceOrigin);
+      return normalizeHost(parsed.host) === expectedHost;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function isTrustedCsrfRequest(req) {
+    const csrfHeader = readHeader(req, 'x-game64x64-csrf').trim();
+    if (csrfHeader === '1') {
+      return true;
+    }
+
+    const source = (readHeader(req, 'origin') || readHeader(req, 'referer')).trim();
+    if (!source) {
+      return false;
+    }
+
+    const expectedHost = normalizeHost(
+      readHeader(req, 'x-forwarded-host') || readHeader(req, 'host')
+    );
+    if (!expectedHost) {
+      return false;
+    }
+
+    try {
+      const parsed = new URL(source);
+      return normalizeHost(parsed.host) === expectedHost;
+    } catch (_error) {
+      return false;
+    }
   }
 
   function getAuthTokenFromRequest(req) {
@@ -949,6 +1010,8 @@ function createAuthService(options) {
     isAdminUser,
     isMongoConnected,
     isSeedTestEmail,
+    isTrustedCsrfRequest,
+    isTrustedOriginRequest,
     isValidEmail,
     listActiveSessionsForUser,
     normalizeDisplayName,

@@ -123,6 +123,10 @@ function registerSystemRoutes(deps) {
     if (!authContext) {
       return;
     }
+    if (!auth.isTrustedCsrfRequest(req)) {
+      res.status(403).json({ ok: false, message: 'Untrusted request origin' });
+      return;
+    }
 
     const email = auth.normalizeEmail(req.body?.email);
     const userId = String(req.body?.userId || '').trim();
@@ -163,7 +167,6 @@ function registerSystemRoutes(deps) {
   app.get('/api/stats', asyncRoute(handleStats));
   app.get('/api/admin/user-by-email', asyncRoute(handleAdminUserLookup));
   app.post('/api/admin/user/revoke-sessions', asyncRoute(handleAdminUserSessionRevoke));
-  app.get('/api/debug/user-by-email', asyncRoute(handleAdminUserLookup));
 }
 
 module.exports = {

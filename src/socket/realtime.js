@@ -2,9 +2,14 @@
 function configureRealtime(io, deps) {
   const { config, stats, auth, game } = deps;
 
-  if (config.AUTH_REQUIRED) {
-    io.use((socket, next) => {
-      (async () => {
+  io.use((socket, next) => {
+    (async () => {
+      if (!auth.isTrustedOriginRequest(socket.request)) {
+        next(new Error('forbidden_origin'));
+        return;
+      }
+
+      if (config.AUTH_REQUIRED) {
         const authContext = await auth.getAuthenticatedUserByToken(auth.getAuthTokenFromSocket(socket));
         if (!authContext) {
           next(new Error('unauthorized'));
@@ -18,13 +23,14 @@ function configureRealtime(io, deps) {
         };
         socket.data.authToken = authContext.token;
         auth.clearPendingSessionRelease(authContext.user.id);
-        next();
-      })().catch((error) => {
-        console.error('[socket-auth] failed:', error);
-        next(new Error('unauthorized'));
-      });
+      }
+
+      next();
+    })().catch((error) => {
+      console.error('[socket-auth] failed:', error);
+      next(new Error('unauthorized'));
     });
-  }
+  });
 
   io.on('connection', (socket) => {
     stats.connectionsTotal += 1;
@@ -45,28 +51,12 @@ function configureRealtime(io, deps) {
 
       (async () => {
         const seq = game.normalizeSeq(payload?.seq);
-        const coordX = game.normalizeCoord(payload?.x, config.GRID_SIZE - 1);
-        const coordY = game.normalizeCoord(payload?.y, config.GRID_SIZE - 1);
         const hasCoordFields = payload && ('x' in payload || 'y' in payload);
-        const hasCoords = coordX !== null && coordY !== null;
         const direction = payload?.direction;
 
-        if (hasCoordFields && !hasCoords) {
+        if (hasCoordFields) {
           stats.movesRejectedInvalid += 1;
           game.emitMoveAck(socket, seq, false, 'invalid_coords');
-          return;
-        }
-
-        if (hasCoords) {
-          const moved = await game.movePlayerTo(socket.id, coordX, coordY);
-          if (!moved.ok) {
-            game.emitMoveAck(socket, seq, false, moved.reason || 'missing_player');
-            return;
-          }
-          game.emitPlayerMoved(moved.player, seq);
-          game.emitMoveAck(socket, seq, true, null, moved.player);
-          await game.emitPlayersNow();
-          stats.movesApplied += 1;
           return;
         }
 

@@ -19,7 +19,7 @@ function requestJson(url, headers = {}) {
         } catch (_error) {
           parsed = null;
         }
-        resolve({ statusCode: res.statusCode, body: parsed });
+        resolve({ statusCode: res.statusCode, body: parsed, headers: res.headers });
       });
     });
 
@@ -43,6 +43,17 @@ async function run() {
     const health = await requestJson(`${BASE_URL}/health`);
     assert.strictEqual(health.statusCode, 200, 'Expected /health to succeed');
     assert.strictEqual(health.body.ok, true, 'Expected ok=true in health response');
+    assert(health.headers['content-security-policy'], 'Expected CSP header on /health');
+    assert.strictEqual(
+      health.headers['x-content-type-options'],
+      'nosniff',
+      'Expected nosniff header on /health'
+    );
+    assert.strictEqual(
+      health.headers['x-frame-options'],
+      'DENY',
+      'Expected DENY frame header on /health'
+    );
 
     const healthUnauthorized = await requestJson(`${BASE_URL}/api/health`);
     assert.strictEqual(

@@ -1,6 +1,7 @@
 const os = require('os');
 
 function createRuntimeConfig(packageJson) {
+  const NODE_ENV = String(process.env.NODE_ENV || 'development');
   const PORT = Number(process.env.PORT || 3000);
   const GRID_SIZE = 64;
   const MAX_SPAWN_ATTEMPTS = 500;
@@ -26,7 +27,9 @@ function createRuntimeConfig(packageJson) {
   const NODE_ID = String(process.env.NODE_ID || os.hostname() || `node-${process.pid}`);
   const STRICT_CLUSTER_CONFIG = String(process.env.STRICT_CLUSTER_CONFIG || 'true') === 'true';
   const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'game64x64_session';
-  const AUTH_COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || 'false') === 'true';
+  const AUTH_COOKIE_SECURE =
+    String(process.env.AUTH_COOKIE_SECURE || (NODE_ENV === 'production' ? 'true' : 'false')) ===
+    'true';
   const AUTH_SESSION_TTL_SEC = Number(process.env.AUTH_SESSION_TTL_SEC || 86400);
   const AUTH_LOGIN_FAIL_RATE_LIMIT_MAX = Number(process.env.AUTH_LOGIN_FAIL_RATE_LIMIT_MAX || 10);
   const AUTH_LOGIN_FAIL_RATE_LIMIT_WINDOW_SEC = Number(
@@ -42,6 +45,7 @@ function createRuntimeConfig(packageJson) {
   const AUTH_ALLOW_CONCURRENT_SEED_USERS =
     String(process.env.AUTH_ALLOW_CONCURRENT_SEED_USERS || 'true') === 'true';
   const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED || 'true') === 'true';
+  const TRUST_PROXY = String(process.env.TRUST_PROXY || 'false') === 'true';
   const ALLOW_LOOPBACK_MONGO_TUNNEL =
     String(process.env.ALLOW_LOOPBACK_MONGO_TUNNEL || 'false') === 'true';
   const adminEmailsRaw = process.env.ADMIN_EMAILS || process.env.AUTH_ADMIN_EMAILS || '';
@@ -129,11 +133,14 @@ function createRuntimeConfig(packageJson) {
     if (AUTH_REQUIRE_MONGO && !MONGO_URL) {
       warnings.push('AUTH_REQUIRE_MONGO is true but MONGO_URL is empty.');
     }
+    if (AUTH_SEED_TEST_USERS) {
+      warnings.push('AUTH_SEED_TEST_USERS is enabled. Do not use seeded credentials outside tests.');
+    }
     return warnings;
   }
 
   function getConfigFatalErrors() {
-    if (!STRICT_CLUSTER_CONFIG || process.env.NODE_ENV !== 'production') {
+    if (!STRICT_CLUSTER_CONFIG || NODE_ENV !== 'production') {
       return [];
     }
 
@@ -151,6 +158,9 @@ function createRuntimeConfig(packageJson) {
     }
     if (AUTH_REQUIRE_MONGO && !MONGO_URL) {
       errors.push('Production auth requires MONGO_URL when AUTH_REQUIRE_MONGO=true.');
+    }
+    if (AUTH_SEED_TEST_USERS) {
+      errors.push('Production cannot enable AUTH_SEED_TEST_USERS.');
     }
     return errors;
   }
@@ -170,7 +180,22 @@ function createRuntimeConfig(packageJson) {
     }
   }
 
+  function getRedactedRedisUrl() {
+    if (!REDIS_URL) {
+      return '';
+    }
+
+    try {
+      const parsed = new URL(REDIS_URL);
+      const authPrefix = parsed.username ? `${parsed.username}:***@` : '';
+      return `${parsed.protocol}//${authPrefix}${parsed.host}`;
+    } catch (_error) {
+      return REDIS_URL;
+    }
+  }
+
   return {
+    NODE_ENV,
     PORT,
     GRID_SIZE,
     MAX_SPAWN_ATTEMPTS,
@@ -205,6 +230,7 @@ function createRuntimeConfig(packageJson) {
     AUTH_SEED_TEST_USERS,
     AUTH_ALLOW_CONCURRENT_SEED_USERS,
     AUTH_REQUIRED,
+    TRUST_PROXY,
     ALLOW_LOOPBACK_MONGO_TUNNEL,
     AUTH_ADMIN_EMAILS,
     AUTH_DEFAULT_PASSWORD_MIN,
@@ -213,6 +239,7 @@ function createRuntimeConfig(packageJson) {
     getConfigWarnings,
     getConfigFatalErrors,
     getRedactedMongoUrl,
+    getRedactedRedisUrl,
   };
 }
 

@@ -24,6 +24,9 @@ function requestJson(method, route, body = null, cookie = '') {
   const headers = {
     Accept: 'application/json',
   };
+  if (method !== 'GET' && method !== 'HEAD') {
+    headers['x-game64x64-csrf'] = '1';
+  }
   if (payload) {
     headers['Content-Type'] = 'application/json';
     headers['Content-Length'] = Buffer.byteLength(payload);

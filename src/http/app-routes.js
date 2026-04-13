@@ -22,7 +22,38 @@ function registerAppRoutes(deps) {
     return String(pathname || '').startsWith('/api/');
   }
 
+  const contentSecurityPolicy = [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self' ws: wss:",
+  ].join('; ');
+
+  app.disable('x-powered-by');
   app.use(express.json({ limit: '32kb' }));
+  app.use((req, res, next) => {
+    res.setHeader('Content-Security-Policy', contentSecurityPolicy);
+    res.setHeader('Referrer-Policy', 'same-origin');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader(
+      'Permissions-Policy',
+      'camera=(), geolocation=(), microphone=(), payment=(), usb=()'
+    );
+
+    const forwardedProto = String(req.get('x-forwarded-proto') || '').toLowerCase();
+    if (req.secure || forwardedProto === 'https') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
   app.use((req, res, next) => {
     const route = String(req.path || '').toLowerCase();
     if (

@@ -46,7 +46,24 @@ function run() {
     'Expected MONGO_URL loopback guard to trigger'
   );
 
-  console.log('PASS config guard: production cluster loopback config rejected');
+  const seedFatalErrors = withEnv(
+    {
+      PORT: '3199',
+      NODE_ENV: 'production',
+      ENABLE_REDIS: 'false',
+      AUTH_REQUIRE_MONGO: 'false',
+      AUTH_SEED_TEST_USERS: 'true',
+      STRICT_CLUSTER_CONFIG: 'true',
+    },
+    () => createRuntimeConfig(packageJson).getConfigFatalErrors()
+  );
+
+  assert(
+    seedFatalErrors.some((message) => message.includes('AUTH_SEED_TEST_USERS')),
+    'Expected AUTH_SEED_TEST_USERS production guard to trigger'
+  );
+
+  console.log('PASS config guard: production cluster loopback and seeded auth config rejected');
 }
 
 try {

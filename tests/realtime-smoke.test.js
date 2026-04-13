@@ -20,11 +20,12 @@ async function waitFor(condition, timeoutMs = 4000, intervalMs = 30) {
   throw new Error('Timeout waiting for condition');
 }
 
-function connectClient() {
+function connectClient(extraHeaders = null) {
   return io(BASE_URL, {
     transports: ['websocket'],
     reconnection: false,
     timeout: 4000,
+    extraHeaders: extraHeaders || undefined,
   });
 }
 
@@ -58,6 +59,7 @@ async function run() {
   let c1 = null;
   let c2 = null;
   let c3 = null;
+  let foreignOriginClient = null;
 
   try {
     c1 = connectClient();
@@ -95,6 +97,28 @@ async function run() {
       return Boolean(moved && moved.x >= meBefore.x);
     });
 
+    let invalidMoveAck = null;
+    c1.once('moveAck', (payload) => {
+      invalidMoveAck = payload;
+    });
+    c1.emit('move', { x: meBefore.x + 8, y: meBefore.y + 8, seq: 999 });
+    await waitFor(() => invalidMoveAck !== null);
+    assert.strictEqual(invalidMoveAck?.ok, false, 'Coordinate teleport should be rejected');
+    assert.strictEqual(
+      invalidMoveAck?.reason,
+      'invalid_coords',
+      'Coordinate teleport should return invalid_coords'
+    );
+
+    foreignOriginClient = connectClient({ Origin: 'https://evil.example' });
+    await assert.rejects(
+      waitForConnect(foreignOriginClient),
+      /forbidden_origin/,
+      'Expected foreign Origin websocket to be rejected'
+    );
+    foreignOriginClient.close();
+    foreignOriginClient = null;
+
     const c3Id = c3.id;
     c3.disconnect();
 
@@ -110,6 +134,9 @@ async function run() {
     }
     if (c3) {
       c3.disconnect();
+    }
+    if (foreignOriginClient) {
+      foreignOriginClient.disconnect();
     }
 
     await serverHandle.stop();

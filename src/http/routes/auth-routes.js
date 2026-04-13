@@ -2,9 +2,21 @@
 function registerAuthRoutes(deps) {
   const { app, asyncRoute, config, auth } = deps;
 
+  function requireTrustedMutation(req, res) {
+    if (auth.isTrustedCsrfRequest(req)) {
+      return true;
+    }
+    res.status(403).json({ ok: false, message: 'Untrusted request origin' });
+    return false;
+  }
+
   app.post(
     '/api/auth/register',
     asyncRoute(async (req, res) => {
+      if (!requireTrustedMutation(req, res)) {
+        return;
+      }
+
       const clientIp = auth.getRequestIp(req);
       const registerRateKey = clientIp;
       if (config.AUTH_REGISTER_RATE_LIMIT_MAX > 0) {
@@ -97,6 +109,10 @@ function registerAuthRoutes(deps) {
   app.post(
     '/api/auth/login',
     asyncRoute(async (req, res) => {
+      if (!requireTrustedMutation(req, res)) {
+        return;
+      }
+
       const clientIp = auth.getRequestIp(req);
       const email = auth.normalizeEmail(req.body?.email);
       const password = String(req.body?.password || '');
@@ -155,6 +171,10 @@ function registerAuthRoutes(deps) {
   app.post(
     '/api/auth/logout',
     asyncRoute(async (req, res) => {
+      if (!requireTrustedMutation(req, res)) {
+        return;
+      }
+
       const token = auth.getAuthTokenFromRequest(req);
       if (token) {
         const session = await auth.getSessionByToken(token);

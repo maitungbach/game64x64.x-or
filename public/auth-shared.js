@@ -1,20 +1,8 @@
 (function bootstrapGame64Auth(global) {
   const SESSION_KEY = 'game64x64:session';
   const TAB_ID_KEY = 'game64x64:tab_id';
-  const hostname = String(global.location?.hostname || '').toLowerCase();
-  const EXPOSE_TEST_USERS =
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname === '::1' ||
-    hostname === '[::1]';
-  const DEFAULT_TEST_USERS_SEED = [
-    { name: 'Tài khoản kiểm thử 01', email: 'tester01@example.com', password: 'Test123!' },
-    { name: 'Tài khoản kiểm thử 02', email: 'tester02@example.com', password: 'Test123!' },
-    { name: 'Tài khoản kiểm thử 03', email: 'tester03@example.com', password: 'Test123!' },
-    { name: 'Tài khoản kiểm thử 04', email: 'tester04@example.com', password: 'Test123!' },
-    { name: 'Tài khoản kiểm thử 05', email: 'tester05@example.com', password: 'Test123!' },
-  ];
-  const TEST_USERS_SEED = EXPOSE_TEST_USERS ? DEFAULT_TEST_USERS_SEED : [];
+  // Test credentials must never be shipped to the browser bundle.
+  const TEST_USERS_SEED = [];
 
   function normalizeEmail(value) {
     return String(value || '')
@@ -138,6 +126,13 @@
     };
     if (payload !== undefined && !Object.prototype.hasOwnProperty.call(headers, 'Content-Type')) {
       headers['Content-Type'] = 'application/json';
+    }
+    if (
+      method !== 'GET' &&
+      method !== 'HEAD' &&
+      !Object.prototype.hasOwnProperty.call(headers, 'x-game64x64-csrf')
+    ) {
+      headers['x-game64x64-csrf'] = '1';
     }
     const response = await fetch(path, {
       method,
