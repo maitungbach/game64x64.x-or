@@ -27,6 +27,15 @@ function registerSystemRoutes(deps) {
     return authContext;
   }
 
+  function requireTrustedMutation(req, res) {
+    if (auth.isTrustedCsrfRequest(req)) {
+      return true;
+    }
+
+    res.status(403).json({ ok: false, message: 'Untrusted request origin' });
+    return false;
+  }
+
   function createHealthSnapshot(playersCount) {
     return {
       ok: true,
@@ -39,6 +48,54 @@ function registerSystemRoutes(deps) {
       mongoConnected: auth.isMongoConnected(),
       configWarnings: config.getConfigWarnings(),
     };
+  }
+
+  function toPublicRoom(room) {
+    if (!room) {
+      return null;
+    }
+
+    return {
+      id: room.id,
+      name: room.name,
+      hostId: room.hostId,
+      maxPlayers: room.maxPlayers,
+      currentPlayers: room.players.size,
+      gameDurationSec: room.gameDurationSec,
+      status: room.status,
+      createdAt: room.createdAt,
+      startedAt: room.startedAt,
+      endsAt: room.endsAt,
+    };
+  }
+
+  function getRoomErrorStatus(reason) {
+    switch (reason) {
+      case 'room_not_found':
+        return 404;
+      case 'room_full':
+      case 'room_already_started':
+      case 'need_more_players':
+        return 409;
+      default:
+        return 400;
+    }
+  }
+
+  function sendRoomResult(res, result) {
+    if (!result?.ok) {
+      res.status(getRoomErrorStatus(result?.reason)).json({
+        ok: false,
+        reason: result?.reason || 'unknown',
+        message: result?.reason || 'unknown',
+      });
+      return;
+    }
+
+    res.json({
+      ...result,
+      room: result.room ? toPublicRoom(result.room) : undefined,
+    });
   }
 
   async function handleLiveness(_req, res) {
@@ -170,19 +227,21 @@ function registerSystemRoutes(deps) {
       res.status(401).json({ ok: false, message: 'Unauthorized' });
       return;
     }
-    if (!auth.isTrustedCsrfRequest(req)) {
-      res.status(403).json({ ok: false, message: 'Untrusted request origin' });
+    if (!requireTrustedMutation(req, res)) {
       return;
     }
 
     const room = game.createRoom(authContext.user.id, req.body);
-    res.json({ ok: true, room: { id: room.id, name: room.name, maxPlayers: room.maxPlayers, status: room.status } });
+    res.json({ ok: true, room: toPublicRoom(room) });
   }
 
   async function handleJoinRoom(req, res) {
     const authContext = await auth.getAuthenticatedUserFromRequest(req);
     if (!authContext) {
       res.status(401).json({ ok: false, message: 'Unauthorized' });
+      return;
+    }
+    if (!requireTrustedMutation(req, res)) {
       return;
     }
 
@@ -193,13 +252,16 @@ function registerSystemRoutes(deps) {
     }
 
     const result = game.joinRoom(roomId, authContext.user.id);
-    res.json(result);
+    sendRoomResult(res, result);
   }
 
   async function handleLeaveRoom(req, res) {
     const authContext = await auth.getAuthenticatedUserFromRequest(req);
     if (!authContext) {
       res.status(401).json({ ok: false, message: 'Unauthorized' });
+      return;
+    }
+    if (!requireTrustedMutation(req, res)) {
       return;
     }
 
@@ -210,7 +272,7 @@ function registerSystemRoutes(deps) {
     }
 
     const result = game.leaveRoom(roomId, authContext.user.id);
-    res.json(result);
+    sendRoomResult(res, result);
   }
 
   async function handleStartRoom(req, res) {
@@ -219,8 +281,7 @@ function registerSystemRoutes(deps) {
       res.status(401).json({ ok: false, message: 'Unauthorized' });
       return;
     }
-    if (!auth.isTrustedCsrfRequest(req)) {
-      res.status(403).json({ ok: false, message: 'Untrusted request origin' });
+    if (!requireTrustedMutation(req, res)) {
       return;
     }
 
@@ -237,7 +298,7 @@ function registerSystemRoutes(deps) {
     }
 
     const result = game.startRoomGame(roomId);
-    res.json(result);
+    sendRoomResult(res, result);
   }
 
   async function handleRoomLeaderboard(req, res) {
