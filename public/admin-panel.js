@@ -167,7 +167,7 @@ function renderWarnings(warnings) {
   if (items.length === 0) {
     const item = document.createElement('li');
     item.className = 'warning-item is-ok';
-    item.textContent = 'Khong co canh bao cau hinh.';
+    item.textContent = 'Không có cảnh báo cấu hình.';
     fragment.appendChild(item);
     el.healthWarnings.replaceChildren(fragment);
     return;
@@ -203,7 +203,7 @@ function renderLookupSessions(activeSessions) {
   if (sessions.length === 0) {
     const item = document.createElement('li');
     item.className = 'session-item empty';
-    item.textContent = 'Chua co session nao.';
+    item.textContent = 'Chưa có session nào.';
     fragment.appendChild(item);
     el.lookupSessions.replaceChildren(fragment);
     return;
@@ -237,7 +237,7 @@ function resetLookupResult() {
 function renderLookupResult(payload) {
   if (!payload?.found || !payload.user) {
     resetLookupResult();
-    setLookupMessage(`Khong tim thay tai khoan ${payload?.lookupEmail || ''}.`, 'error');
+    setLookupMessage(`Không tìm thấy tài khoản ${payload?.lookupEmail || ''}.`, 'error');
     return;
   }
 
@@ -257,7 +257,7 @@ function renderLookupResult(payload) {
   setText(el.lookupAuthStorage, payload.authStorage || '-');
   setText(el.lookupMongoConnected, payload.mongoConnected);
   renderLookupSessions(payload.activeSessions);
-  setLookupMessage(`Da tai thong tin ${payload.user.email}.`);
+  setLookupMessage(`Đã tải thông tin ${payload.user.email}.`);
 }
 
 async function ensureAccess(result) {
@@ -273,8 +273,8 @@ async function ensureAccess(result) {
 
   if (result.status === 403) {
     clearClientSession();
-    setText(el.error, 'Tai khoan hien tai khong co quyen admin.');
-    setText(el.adminWelcome, 'Khong du quyen truy cap trang quan tri.');
+    setText(el.error, 'Tài khoản hiện tại không có quyền admin.');
+    setText(el.adminWelcome, 'Không đủ quyền truy cập trang quản trị.');
     window.setTimeout(redirectToGame, 700);
     return false;
   }
@@ -328,7 +328,7 @@ async function refreshDashboard() {
     }
 
     if (!dashboard.ok || !dashboard.data?.health || !dashboard.data?.stats) {
-      setText(el.error, `Loi dashboard ${dashboard.status}.`);
+      setText(el.error, `Lỗi dashboard ${dashboard.status}.`);
       state.refreshDelayMs = Math.min(state.refreshDelayMs * 2, MAX_REFRESH_INTERVAL_MS);
       return false;
     }
@@ -340,7 +340,7 @@ async function refreshDashboard() {
     state.refreshDelayMs = REFRESH_INTERVAL_MS;
     return true;
   } catch (_error) {
-    setText(el.error, 'Khong the cap nhat dashboard.');
+    setText(el.error, 'Không thể cập nhật dashboard.');
     state.refreshDelayMs = Math.min(state.refreshDelayMs * 2, MAX_REFRESH_INTERVAL_MS);
     return false;
   } finally {
@@ -364,7 +364,7 @@ function scheduleDashboardRefresh(delayMs = null) {
 async function lookupUser(email) {
   const normalized = normalizeEmail(email);
   if (!normalized) {
-    setLookupMessage('Hay nhap email hop le de tra cuu.', 'error');
+    setLookupMessage('Hãy nhập email hợp lệ để tra cứu.', 'error');
     return;
   }
 
@@ -373,7 +373,7 @@ async function lookupUser(email) {
     return;
   }
   if (!result.ok) {
-    setLookupMessage(`Tra cuu that bai (${result.status}).`, 'error');
+    setLookupMessage(`Tra cứu thất bại (${result.status}).`, 'error');
     return;
   }
 
@@ -387,7 +387,7 @@ async function handleLookupSubmit(event) {
 
 async function handleLookupRefresh() {
   if (!state.lookupEmail) {
-    setLookupMessage('Chua co nguoi dung nao de tai lai.', 'error');
+    setLookupMessage('Chưa có người dùng nào để tải lại.', 'error');
     return;
   }
   await lookupUser(state.lookupEmail);
@@ -409,12 +409,12 @@ async function handleRevokeSessions() {
 
   if (!result.ok) {
     el.revokeSessions.disabled = false;
-    setLookupMessage(`Thu hoi session that bai (${result.status}).`, 'error');
+    setLookupMessage(`Thu hồi session thất bại (${result.status}).`, 'error');
     return;
   }
 
   setLookupMessage(
-    `Da thu hoi ${result.data?.revokedCount || 0} session va ngat ${result.data?.disconnectedSockets || 0} socket.`,
+    `Đã thu hồi ${result.data?.revokedCount || 0} session và ngắt ${result.data?.disconnectedSockets || 0} socket.`,
     'success'
   );
 
@@ -431,9 +431,9 @@ async function handleRevokeSessions() {
 function applyTokenState() {
   state.token = el.token.value.trim();
   if (state.token) {
-    setText(el.authStatus, 'Dashboard dang dung snapshot admin. Dang kiem tra STATS_TOKEN cho /api/stats.');
+    setText(el.authStatus, 'Dashboard đang dùng snapshot admin. Đang kiểm tra STATS_TOKEN cho /api/stats.');
   } else {
-    setText(el.authStatus, 'Dashboard dang dung snapshot admin gom health va stats trong mot request.');
+    setText(el.authStatus, 'Dashboard đang dùng snapshot admin gồm health và stats trong một request.');
   }
 }
 
@@ -452,11 +452,11 @@ async function verifyStatsToken() {
   }
 
   if (result.ok) {
-    setText(el.authStatus, 'Dashboard dang dung snapshot admin. STATS_TOKEN hop le cho /api/stats.');
+    setText(el.authStatus, 'Dashboard đang dùng snapshot admin. STATS_TOKEN hợp lệ cho /api/stats.');
     return;
   }
 
-  setText(el.authStatus, `Dashboard dang dung snapshot admin. STATS_TOKEN tra ve ${result.status}.`);
+  setText(el.authStatus, `Dashboard đang dùng snapshot admin. STATS_TOKEN trả về ${result.status}.`);
 }
 
 async function handleLogout() {
@@ -478,7 +478,7 @@ async function bootstrap() {
   }
   if (!me.isAdmin) {
     clearClientSession();
-    setText(el.adminWelcome, 'Tai khoan hien tai khong co quyen admin.');
+    setText(el.adminWelcome, 'Tài khoản hiện tại không có quyền admin.');
     window.setTimeout(redirectToGame, 700);
     return;
   }

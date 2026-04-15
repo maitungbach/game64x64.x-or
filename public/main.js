@@ -97,7 +97,7 @@ function handleSessionConflict(message, options = {}) {
     logoutFromServer();
   }
   resetRuntimeState();
-  statusEl.textContent = message || 'Phien dang nhap khong hop le. Dang chuyen huong...';
+  statusEl.textContent = message || 'Phiên đăng nhập không hợp lệ. Đang chuyển hướng...';
   renderAccountBar();
   window.setTimeout(redirectToAuth, 150);
 }
@@ -109,15 +109,15 @@ function renderAccountBar() {
 
   const session = readSession();
   if (!session) {
-    accountNameEl.textContent = 'Chua dang nhap';
-    authActionEl.textContent = 'Dang nhap / Dang ky';
+    accountNameEl.textContent = 'Chưa đăng nhập';
+    authActionEl.textContent = 'Đăng nhập / Đăng ký';
     authActionEl.href = LOGIN_URL;
     authActionEl.onclick = null;
     return;
   }
 
-  accountNameEl.textContent = `Xin chao, ${session.name || session.email}`;
-  authActionEl.textContent = 'Dang xuat';
+  accountNameEl.textContent = `Xin chào, ${session.name || session.email}`;
+  authActionEl.textContent = 'Đăng xuất';
   authActionEl.href = '#';
   authActionEl.onclick = async (event) => {
     event.preventDefault();
@@ -127,7 +127,7 @@ function renderAccountBar() {
       socket.disconnect();
     }
     resetRuntimeState();
-    statusEl.textContent = 'Da dang xuat. Dang chuyen den trang dang nhap...';
+    statusEl.textContent = 'Đã đăng xuất. Đang chuyển đến trang đăng nhập...';
     renderAccountBar();
     redirectToAuth();
   };
@@ -393,7 +393,7 @@ function drawPlayersFrame(deltaMs) {
 
 function updateStatusText() {
   if (!readSession()) {
-    statusEl.textContent = 'Ban can dang nhap de choi.';
+    statusEl.textContent = 'Bạn cần đăng nhập để chơi.';
     return;
   }
 
@@ -404,7 +404,7 @@ function updateStatusText() {
     return;
   }
 
-  statusEl.textContent = `Dang ket noi... | Truc tuyen: ${total}`;
+  statusEl.textContent = `Đang kết nối... | Trực tuyến: ${total}`;
 }
 
 function renderFrame() {
@@ -586,12 +586,12 @@ socket.on('playerJoined', applyJoinEvent);
 socket.on('playerLeft', applyLeftEvent);
 socket.on('connect_error', (error) => {
   if (String(error?.message || '').toLowerCase() === 'unauthorized') {
-    handleSessionConflict('Phien dang nhap khong hop le.', {
+    handleSessionConflict('Phiên đăng nhập không hợp lệ.', {
       logoutServer: false,
     });
     return;
   }
-  statusEl.textContent = 'Ket noi tam thoi gian doan. He thong dang tu ket noi lai...';
+  statusEl.textContent = 'Kết nối tạm thời gián đoạn. Hệ thống đang tự kết nối lại...';
 });
 
 const roomStatusEl = document.getElementById('roomStatus');
@@ -675,7 +675,7 @@ function formatTimeRemaining() {
 
 function renderRoomTimer() {
   if (roomPhase === 'ended') {
-    roomTimerEl.textContent = 'Thoi gian: Het gio!';
+    roomTimerEl.textContent = 'Thời gian: Hết giờ!';
     return;
   }
 
@@ -846,7 +846,7 @@ async function bootstrapAuthAndConnect() {
   try {
     const me = await fetchAuthMe();
     if (!me) {
-      statusEl.textContent = 'Ban can dang nhap de vao game. Dang chuyen huong...';
+      statusEl.textContent = 'Bạn cần đăng nhập để vào game. Đang chuyển hướng...';
       window.setTimeout(redirectToAuth, 150);
       return;
     }
@@ -857,11 +857,11 @@ async function bootstrapAuthAndConnect() {
     }
 
     if (!initialSession) {
-      handleSessionConflict('Phien dang nhap da het han hoac bi thay doi.');
+      handleSessionConflict('Phiên đăng nhập đã hết hạn hoặc bị thay đổi.');
       return;
     }
   } catch {
-    statusEl.textContent = 'Khong the xac thuc tai khoan. Dang thu lai...';
+    statusEl.textContent = 'Không thể xác thực tài khoản. Đang thử lại...';
     window.setTimeout(() => {
       if (!redirectingToAuth) {
         bootstrapAuthAndConnect();

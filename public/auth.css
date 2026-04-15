@@ -55,7 +55,7 @@ h1 {
 
 .auth-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -141,6 +141,13 @@ input:focus {
   color: #5f7593;
 }
 
+.admin-login-note {
+  margin: 0 0 4px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #48617f;
+}
+
 .test-accounts {
   margin-top: 14px;
   border-top: 1px dashed var(--line);
@@ -171,5 +178,9 @@ input:focus {
 
   h1 {
     font-size: 1.25rem;
+  }
+
+  .auth-tabs {
+    grid-template-columns: 1fr;
   }
 }

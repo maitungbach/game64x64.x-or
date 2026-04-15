@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Đăng nhập / Đăng ký - Game 64x64</title>
-    <link rel="stylesheet" href="auth.css?v=20260327-1" />
+    <link rel="stylesheet" href="auth.css?v=20260415-1" />
   </head>
   <body>
     <main class="auth-shell">
@@ -20,6 +20,7 @@
             Đăng nhập
           </button>
           <button id="tabRegister" type="button" class="tab" data-mode="register">Đăng ký</button>
+          <button id="tabAdmin" type="button" class="tab" data-mode="admin">Đăng nhập admin</button>
         </div>
 
         <form id="loginForm" class="auth-form">
@@ -68,6 +69,27 @@
           <button type="submit" class="primary-btn">Tạo tài khoản</button>
         </form>
 
+        <form id="adminLoginForm" class="auth-form is-hidden">
+          <p class="admin-login-note">
+            Dành riêng cho tài khoản admin. Sau khi xác thực thành công, hệ thống sẽ chuyển
+            thẳng vào trang điều hành.
+          </p>
+
+          <label for="adminEmail">Email admin</label>
+          <input id="adminEmail" name="email" type="email" autocomplete="username" required />
+
+          <label for="adminPassword">Mật khẩu</label>
+          <input
+            id="adminPassword"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+
+          <button type="submit" class="primary-btn">Đăng nhập trang admin</button>
+        </form>
+
         <p id="authMessage" class="message" aria-live="polite"></p>
         <p class="note" data-default-copy="single-session">
           Đăng nhập được xử lý bởi máy chủ. Tài khoản thường giới hạn 1 phiên, riêng 5 tài khoản
@@ -82,6 +104,6 @@
     </main>
 
     <script src="auth-shared.js?v=20260406-2"></script>
-    <script src="auth.js?v=20260406-2"></script>
+    <script src="auth.js?v=20260415-2"></script>
   </body>
 </html>

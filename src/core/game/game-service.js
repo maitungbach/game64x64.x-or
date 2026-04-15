@@ -16,6 +16,19 @@ function createGameService(options) {
   let shuttingDown = false;
   let roomIdCounter = 0;
 
+  function normalizeRoomId(roomId) {
+    const normalized = String(roomId || '').trim().toUpperCase();
+    return normalized || null;
+  }
+
+  function getCellScope(roomId, playerId = '') {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (normalizedRoomId) {
+      return `room:${normalizedRoomId}`;
+    }
+    return `solo:${playerId}`;
+  }
+
   function generateRoomId() {
     roomIdCounter += 1;
     let id = '';
@@ -69,6 +82,7 @@ function createGameService(options) {
         x: clamp(Number(parsed.x), 0, config.GRID_SIZE - 1),
         y: clamp(Number(parsed.y), 0, config.GRID_SIZE - 1),
         color: typeof parsed.color === 'string' ? parsed.color : '#999999',
+        roomId: normalizeRoomId(parsed.roomId),
       };
     } catch (_error) {
       return null;
@@ -102,6 +116,15 @@ function createGameService(options) {
     return list;
   }
 
+  async function getPlayersInRoom(roomId) {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (!normalizedRoomId) {
+      return [];
+    }
+    const list = await getPlayersList();
+    return list.filter((player) => normalizeRoomId(player.roomId) === normalizedRoomId);
+  }
+
   async function getPlayerById(id) {
     if (shuttingDown) {
       return null;
@@ -125,13 +148,32 @@ function createGameService(options) {
       return;
     }
 
+    const next = {
+      ...player,
+      roomId: normalizeRoomId(player.roomId),
+    };
+
     const redisDataClient = getRedisDataClient();
     if (!redisDataClient || !redisDataClient.isOpen) {
-      players.set(player.id, player);
+      players.set(next.id, next);
       return;
     }
 
-    await redisDataClient.hSet(config.REDIS_PLAYERS_KEY, player.id, JSON.stringify(player));
+    const previous = await getPlayerById(next.id);
+    const previousCell = previous
+      ? toCellKey(previous.x, previous.y)
+      : null;
+    const previousScope = previous ? getCellScope(previous.roomId, previous.id) : null;
+    const nextCell = toCellKey(next.x, next.y);
+    const nextScope = getCellScope(next.roomId, next.id);
+
+    const tx = redisDataClient.multi();
+    if (previous && (previousCell !== nextCell || previousScope !== nextScope)) {
+      tx.hDel(config.REDIS_CELLS_KEY, `${previousScope}:${previousCell}`);
+    }
+    tx.hSet(config.REDIS_CELLS_KEY, `${nextScope}:${nextCell}`, next.id);
+    tx.hSet(config.REDIS_PLAYERS_KEY, next.id, JSON.stringify(next));
+    await tx.exec();
   }
 
   async function removePlayer(id) {
@@ -154,7 +196,8 @@ function createGameService(options) {
         if raw then
           local ok, player = pcall(cjson.decode, raw)
           if ok and player and player.x ~= nil and player.y ~= nil then
-            local cell = tostring(player.x) .. ':' .. tostring(player.y)
+            local scope = (player.roomId and tostring(player.roomId) ~= '' and ('room:' .. tostring(player.roomId))) or ('solo:' .. tostring(player.id))
+            local cell = scope .. ':' .. tostring(player.x) .. ':' .. tostring(player.y)
             redis.call('HDEL', cellsKey, cell)
           end
         end
@@ -165,24 +208,42 @@ function createGameService(options) {
     );
   }
 
-  async function isOccupied(x, y, ignoreId = null) {
+  async function isOccupied(x, y, ignoreId = null, roomId = null) {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (!normalizedRoomId) {
+      return false;
+    }
     const list = await getPlayersList();
-    return list.some((player) => player.id !== ignoreId && player.x === x && player.y === y);
+    return list.some(
+      (player) =>
+        player.id !== ignoreId &&
+        normalizeRoomId(player.roomId) === normalizedRoomId &&
+        player.x === x &&
+        player.y === y
+    );
   }
 
-  async function findSpawnPosition() {
+  async function findSpawnPosition(roomId = null) {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (!normalizedRoomId) {
+      return {
+        x: randomInt(config.GRID_SIZE),
+        y: randomInt(config.GRID_SIZE),
+      };
+    }
+
     for (let i = 0; i < config.MAX_SPAWN_ATTEMPTS; i += 1) {
       const x = randomInt(config.GRID_SIZE);
       const y = randomInt(config.GRID_SIZE);
 
-      if (!(await isOccupied(x, y))) {
+      if (!(await isOccupied(x, y, null, normalizedRoomId))) {
         return { x, y };
       }
     }
 
     for (let y = 0; y < config.GRID_SIZE; y += 1) {
       for (let x = 0; x < config.GRID_SIZE; x += 1) {
-        if (!(await isOccupied(x, y))) {
+        if (!(await isOccupied(x, y, null, normalizedRoomId))) {
           return { x, y };
         }
       }
@@ -208,7 +269,8 @@ function createGameService(options) {
         continue;
       }
 
-      const cell = toCellKey(player.x, player.y);
+      const scope = getCellScope(player.roomId, player.id);
+      const cell = `${scope}:${toCellKey(player.x, player.y)}`;
       if (seen.has(cell)) {
         continue;
       }
@@ -233,8 +295,12 @@ function createGameService(options) {
     await tx.exec();
   }
 
-  function emitPlayerLeft(playerId) {
-    io.emit('playerLeft', { id: playerId });
+  function emitPlayerLeft(playerId, roomId) {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (!normalizedRoomId) {
+      return;
+    }
+    io.to(normalizedRoomId).emit('playerLeft', { id: playerId });
   }
 
   function scheduleEmitPlayers() {
@@ -283,16 +349,19 @@ function createGameService(options) {
 
       for (const player of list) {
         if (!activeSocketIds.has(player.id)) {
+          const roomId = normalizeRoomId(player.roomId);
           await removePlayer(player.id);
           lastMoveAt.delete(player.id);
-          emitPlayerLeft(player.id);
+          emitPlayerLeft(player.id, roomId);
+          if (roomId) {
+            await emitPlayersNow({ roomId });
+          }
           removed += 1;
         }
       }
 
       if (removed > 0) {
         console.log(`[reconcile] Removed ${removed} stale players from Redis.`);
-        scheduleEmitPlayers();
       }
     } catch (error) {
       stats.errorsTotal += 1;
@@ -300,13 +369,23 @@ function createGameService(options) {
     }
   }
 
-  async function spawnPlayerRedis(playerId) {
+  async function spawnPlayerRedis(playerId, roomId = null) {
     const redisDataClient = getRedisDataClient();
     if (shuttingDown || !redisDataClient || !redisDataClient.isOpen) {
       return null;
     }
 
+    const normalizedRoomId = normalizeRoomId(roomId);
     const color = randomColor();
+    if (!normalizedRoomId) {
+      const x = randomInt(config.GRID_SIZE);
+      const y = randomInt(config.GRID_SIZE);
+      const player = { id: playerId, x, y, color, roomId: null };
+      await redisDataClient.hSet(config.REDIS_CELLS_KEY, `${getCellScope(null, playerId)}:${toCellKey(x, y)}`, playerId);
+      await redisDataClient.hSet(config.REDIS_PLAYERS_KEY, playerId, JSON.stringify(player));
+      return player;
+    }
+
     let fallback = null;
 
     for (let i = 0; i < config.MAX_SPAWN_ATTEMPTS; i += 1) {
@@ -320,7 +399,9 @@ function createGameService(options) {
           local x = tonumber(ARGV[2])
           local y = tonumber(ARGV[3])
           local color = ARGV[4]
-          local cell = tostring(x) .. ':' .. tostring(y)
+          local roomId = ARGV[5]
+          local scope = 'room:' .. tostring(roomId)
+          local cell = scope .. ':' .. tostring(x) .. ':' .. tostring(y)
 
           if redis.call('HEXISTS', cellsKey, cell) == 1 then
             return 0
@@ -331,18 +412,19 @@ function createGameService(options) {
             id = playerId,
             x = x,
             y = y,
-            color = color
+            color = color,
+            roomId = roomId
           }))
           return 1
         `,
         {
           keys: [config.REDIS_PLAYERS_KEY, config.REDIS_CELLS_KEY],
-          arguments: [playerId, String(x), String(y), color],
+          arguments: [playerId, String(x), String(y), color, normalizedRoomId],
         }
       );
 
       if (claimed === 1) {
-        return { id: playerId, x, y, color };
+        return { id: playerId, x, y, color, roomId: normalizedRoomId };
       }
     }
 
@@ -356,7 +438,9 @@ function createGameService(options) {
             local x = tonumber(ARGV[2])
             local y = tonumber(ARGV[3])
             local color = ARGV[4]
-            local cell = tostring(x) .. ':' .. tostring(y)
+            local roomId = ARGV[5]
+            local scope = 'room:' .. tostring(roomId)
+            local cell = scope .. ':' .. tostring(x) .. ':' .. tostring(y)
 
             if redis.call('HEXISTS', cellsKey, cell) == 1 then
               return 0
@@ -367,18 +451,19 @@ function createGameService(options) {
               id = playerId,
               x = x,
               y = y,
-              color = color
+              color = color,
+              roomId = roomId
             }))
             return 1
           `,
           {
             keys: [config.REDIS_PLAYERS_KEY, config.REDIS_CELLS_KEY],
-            arguments: [playerId, String(x), String(y), color],
+            arguments: [playerId, String(x), String(y), color, normalizedRoomId],
           }
         );
 
         if (claimed === 1) {
-          fallback = { id: playerId, x, y, color };
+          fallback = { id: playerId, x, y, color, roomId: normalizedRoomId };
           break;
         }
       }
@@ -390,16 +475,17 @@ function createGameService(options) {
     return fallback;
   }
 
-  async function createPlayer(playerId) {
+  async function createPlayer(playerId, roomId = null) {
     if (shuttingDown) {
       return null;
     }
 
     if (usesRedisStorage()) {
-      return await spawnPlayerRedis(playerId);
+      return await spawnPlayerRedis(playerId, roomId);
     }
 
-    const spawn = await findSpawnPosition();
+    const normalizedRoomId = normalizeRoomId(roomId);
+    const spawn = await findSpawnPosition(normalizedRoomId);
     if (!spawn) {
       return null;
     }
@@ -409,6 +495,7 @@ function createGameService(options) {
       x: spawn.x,
       y: spawn.y,
       color: randomColor(),
+      roomId: normalizedRoomId,
     };
     await savePlayer(createdPlayer);
     return createdPlayer;
@@ -419,16 +506,14 @@ function createGameService(options) {
       return null;
     }
 
-    const player = await createPlayer(playerId);
+    const player = await createPlayer(playerId, null);
     if (!player) {
       return null;
     }
-    scheduleEmitPlayers();
-    emitPlayerJoined(player);
     return player;
   }
 
-  async function movePlayerRedis(playerId, direction) {
+  async function movePlayerRedis(playerId, direction, roomId = null) {
     const redisDataClient = getRedisDataClient();
     if (shuttingDown || !redisDataClient || !redisDataClient.isOpen) {
       return { state: 'missing' };
@@ -436,6 +521,11 @@ function createGameService(options) {
 
     const current = await getPlayerById(playerId);
     if (!current) {
+      return { state: 'missing' };
+    }
+
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (normalizeRoomId(current.roomId) !== normalizedRoomId) {
       return { state: 'missing' };
     }
 
@@ -451,7 +541,7 @@ function createGameService(options) {
         local playerId = ARGV[1]
         local toX = tonumber(ARGV[2])
         local toY = tonumber(ARGV[3])
-        local toCell = tostring(toX) .. ':' .. tostring(toY)
+        local expectedRoomId = ARGV[4]
         local raw = redis.call('HGET', playersKey, playerId)
 
         if not raw then
@@ -463,7 +553,16 @@ function createGameService(options) {
           return -1
         end
 
-        local fromCell = tostring(player.x) .. ':' .. tostring(player.y)
+        local currentRoomId = player.roomId and tostring(player.roomId) or ''
+        local expected = expectedRoomId and tostring(expectedRoomId) or ''
+        if currentRoomId ~= expected then
+          return -1
+        end
+
+        local scope = (currentRoomId ~= '' and ('room:' .. currentRoomId)) or ('solo:' .. tostring(player.id))
+        local toCell = scope .. ':' .. tostring(toX) .. ':' .. tostring(toY)
+
+        local fromCell = scope .. ':' .. tostring(player.x) .. ':' .. tostring(player.y)
         if fromCell == toCell then
           return 2
         end
@@ -481,7 +580,7 @@ function createGameService(options) {
       `,
       {
         keys: [config.REDIS_PLAYERS_KEY, config.REDIS_CELLS_KEY],
-        arguments: [playerId, String(next.x), String(next.y)],
+        arguments: [playerId, String(next.x), String(next.y), normalizedRoomId || ''],
       }
     );
 
@@ -498,7 +597,7 @@ function createGameService(options) {
     return { state: 'missing' };
   }
 
-  async function movePlayerTo(playerId, x, y) {
+  async function movePlayerTo(playerId, x, y, roomId = null) {
     if (shuttingDown) {
       return { ok: false, reason: 'missing_player' };
     }
@@ -508,7 +607,12 @@ function createGameService(options) {
       return { ok: false, reason: 'missing_player' };
     }
 
-    if (await isOccupied(x, y, playerId)) {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (normalizeRoomId(player.roomId) !== normalizedRoomId) {
+      return { ok: false, reason: 'missing_player' };
+    }
+
+    if (await isOccupied(x, y, playerId, normalizedRoomId)) {
       return { ok: false, reason: 'occupied', player };
     }
 
@@ -553,13 +657,26 @@ function createGameService(options) {
     return { x: nextX, y: nextY };
   }
 
-  async function emitPlayersNow() {
+  async function emitPlayersNow(options = {}) {
     if (shuttingDown) {
       return;
     }
 
-    const list = await getPlayersList();
-    io.emit('updatePlayers', list);
+    const normalizedRoomId = normalizeRoomId(options.roomId);
+    if (normalizedRoomId) {
+      const list = await getPlayersInRoom(normalizedRoomId);
+      io.to(normalizedRoomId).emit('updatePlayers', list);
+      stats.broadcastsEmitted += 1;
+      return;
+    }
+
+    if (options.socket && options.playerId) {
+      const player = await getPlayerById(options.playerId);
+      options.socket.emit('updatePlayers', player ? [player] : []);
+      stats.broadcastsEmitted += 1;
+      return;
+    }
+
     stats.broadcastsEmitted += 1;
   }
 
@@ -573,27 +690,42 @@ function createGameService(options) {
     });
   }
 
-  function emitPlayerMoved(player, seq) {
+  function emitPlayerMoved(player, seq, roomId = null, socket = null) {
     if (!player) {
       return;
     }
 
-    io.emit('playerMoved', {
+    const payload = {
       id: player.id,
       x: player.x,
       y: player.y,
       color: player.color,
       seq,
       at: Date.now(),
-    });
+    };
+    const normalizedRoomId = normalizeRoomId(roomId || player.roomId);
+    if (normalizedRoomId) {
+      io.to(normalizedRoomId).emit('playerMoved', payload);
+      return;
+    }
+    if (socket) {
+      socket.emit('playerMoved', payload);
+    }
   }
 
-  function emitPlayerJoined(player) {
+  function emitPlayerJoined(player, roomId = null, socket = null) {
     if (!player) {
       return;
     }
 
-    io.emit('playerJoined', player);
+    const normalizedRoomId = normalizeRoomId(roomId || player.roomId);
+    if (normalizedRoomId) {
+      io.to(normalizedRoomId).emit('playerJoined', player);
+      return;
+    }
+    if (socket) {
+      socket.emit('playerJoined', player);
+    }
   }
 
   function consumeMoveRateLimit(playerId, moveIntervalMs) {
@@ -613,8 +745,6 @@ function createGameService(options) {
 
     await removePlayer(playerId);
     lastMoveAt.delete(playerId);
-    scheduleEmitPlayers();
-    emitPlayerLeft(playerId);
   }
 
   function getSocketsOnlineCount() {
@@ -818,9 +948,38 @@ function createGameService(options) {
     return result;
   }
 
+  async function assignPlayerToRoom(playerId, roomId) {
+    const player = await getPlayerById(playerId);
+    if (!player) {
+      return null;
+    }
+
+    const normalizedRoomId = normalizeRoomId(roomId);
+    let nextX = player.x;
+    let nextY = player.y;
+    if (normalizedRoomId && (await isOccupied(nextX, nextY, playerId, normalizedRoomId))) {
+      const spawn = await findSpawnPosition(normalizedRoomId);
+      if (!spawn) {
+        return null;
+      }
+      nextX = spawn.x;
+      nextY = spawn.y;
+    }
+
+    const next = {
+      ...player,
+      roomId: normalizedRoomId,
+      x: nextX,
+      y: nextY,
+    };
+    await savePlayer(next);
+    return next;
+  }
+
   return {
     VALID_DIRECTIONS,
     addRoomScore,
+    assignPlayerToRoom,
     connectPlayer,
     consumeMoveRateLimit,
     createRoom,
@@ -832,6 +991,7 @@ function createGameService(options) {
     getNextPosition,
     getPlayerById,
     getPlayersList,
+    getPlayersInRoom,
     getRoomById,
     getRoomLeaderboard,
     getRoomPlayers,

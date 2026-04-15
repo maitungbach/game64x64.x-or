@@ -5,20 +5,33 @@ const {
   clearSeedAccountLocks,
   isLockedByAnotherTab,
   isSeedTestEmail,
+  logoutFromServer,
   mapLegacySeedEmail,
   normalizeEmail,
   setClientSession,
 } = window.Game64Auth;
 
+const ADMIN_PATHS = new Set(['/admin', '/admin.html']);
+
 const tabLoginEl = document.getElementById('tabLogin');
 const tabRegisterEl = document.getElementById('tabRegister');
+const tabAdminEl = document.getElementById('tabAdmin');
 const loginFormEl = document.getElementById('loginForm');
 const registerFormEl = document.getElementById('registerForm');
+const adminLoginFormEl = document.getElementById('adminLoginForm');
 const authMessageEl = document.getElementById('authMessage');
 const seedListEl = document.getElementById('seedList');
 const testAccountsEl = document.querySelector('.test-accounts');
 
 const TEXT = Object.freeze({
+  adminAccessOnly: 'Tài khoản này không có quyền admin.',
+  adminButton: 'Đăng nhập trang admin',
+  adminHeading: 'Đăng nhập admin',
+  adminLoginSuccess: 'Đăng nhập admin thành công. Đang chuyển đến trang điều hành...',
+  adminNote:
+    'Dành riêng cho tài khoản admin. Sau khi xác thực thành công, hệ thống sẽ chuyển thẳng vào trang điều hành.',
+  bootstrapLoggedInAdmin: "Bạn đã đăng nhập admin. Nhấn 'Vào game' hoặc mở trang quản trị để tiếp tục.",
+  bootstrapLoggedInUser: "Bạn đã đăng nhập. Nhấn 'Vào game' để tiếp tục.",
   authModeLabel: 'Chế độ xác thực',
   authTitle: 'Đăng nhập / Đăng ký - Game 64x64',
   backToGame: 'Vào game',
@@ -49,6 +62,10 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function isAdminPath(path) {
+  return ADMIN_PATHS.has(String(path || '').toLowerCase());
+}
+
 function getNextPath() {
   const next = new URLSearchParams(window.location.search).get('next') || '/game.html';
   if (!next.startsWith('/')) {
@@ -69,10 +86,15 @@ function setMessage(text, type) {
 
 function setMode(mode) {
   const loginActive = mode === 'login';
+  const registerActive = mode === 'register';
+  const adminActive = mode === 'admin';
+
   tabLoginEl.classList.toggle('is-active', loginActive);
-  tabRegisterEl.classList.toggle('is-active', !loginActive);
+  tabRegisterEl.classList.toggle('is-active', registerActive);
+  tabAdminEl.classList.toggle('is-active', adminActive);
   loginFormEl.classList.toggle('is-hidden', !loginActive);
-  registerFormEl.classList.toggle('is-hidden', loginActive);
+  registerFormEl.classList.toggle('is-hidden', !registerActive);
+  adminLoginFormEl.classList.toggle('is-hidden', !adminActive);
   setMessage('');
 }
 
@@ -98,6 +120,9 @@ function hydrateStaticText() {
   setText('label[for="registerEmail"]', 'Email');
   setText('label[for="registerPassword"]', 'Mật khẩu');
   setText('label[for="registerConfirm"]', 'Nhập lại mật khẩu');
+  setText('label[for="adminEmail"]', 'Email admin');
+  setText('label[for="adminPassword"]', 'Mật khẩu');
+  setText('.admin-login-note', TEXT.adminNote);
   setText(
     '.note',
     TEST_USERS_SEED.length > 0
@@ -120,8 +145,10 @@ function hydrateStaticText() {
 
   setElementText(tabLoginEl, 'Đăng nhập');
   setElementText(tabRegisterEl, 'Đăng ký');
+  setElementText(tabAdminEl, TEXT.adminHeading);
   setElementText(loginFormEl.querySelector('button[type="submit"]'), TEXT.loginButton);
   setElementText(registerFormEl.querySelector('button[type="submit"]'), TEXT.registerButton);
+  setElementText(adminLoginFormEl.querySelector('button[type="submit"]'), TEXT.adminButton);
 }
 
 function renderSeedAccounts() {
@@ -143,9 +170,9 @@ function renderSeedAccounts() {
   }
 }
 
-function redirectToGame(delayMs = 300) {
+function redirectToPath(path, delayMs = 300) {
   window.setTimeout(() => {
-    window.location.href = nextPath;
+    window.location.href = path;
   }, delayMs);
 }
 
@@ -168,18 +195,32 @@ async function requestAuth(path, payload) {
   }
 }
 
-function completeAuthentication(user, fallbackUser, successMessage) {
+function completeAuthentication(user, fallbackUser, successMessage, redirectPath = nextPath) {
   setClientSession(user || fallbackUser);
   setMessage(successMessage, 'success');
-  redirectToGame();
+  redirectToPath(redirectPath);
 }
 
-async function handleLogin(event) {
-  event.preventDefault();
+function handleLoginError(result) {
+  if (result.status === 409) {
+    setMessage(TEXT.concurrentOnline, 'error');
+    return;
+  }
+  if (result.status === 429) {
+    setMessage(`Bạn thử đăng nhập lại sau ${formatRetryAfter(result.retryAfterSec)}.`, 'error');
+    return;
+  }
+  setMessage(TEXT.wrongCredentials, 'error');
+}
 
-  const formData = new FormData(loginFormEl);
-  const email = mapLegacySeedEmail(formData.get('email'));
-  const password = String(formData.get('password') || '');
+async function submitLogin(options) {
+  const {
+    email,
+    password,
+    requireAdmin = false,
+    successMessage = TEXT.loginSuccess,
+    redirectPath = nextPath,
+  } = options;
 
   if (!isValidEmail(email)) {
     setMessage(TEXT.invalidEmail, 'error');
@@ -207,19 +248,43 @@ async function handleLogin(event) {
   }
 
   if (!result.ok) {
-    if (result.status === 409) {
-      setMessage(TEXT.concurrentOnline, 'error');
-      return;
-    }
-    if (result.status === 429) {
-      setMessage(`Bạn thử đăng nhập lại sau ${formatRetryAfter(result.retryAfterSec)}.`, 'error');
-      return;
-    }
-    setMessage(TEXT.wrongCredentials, 'error');
+    handleLoginError(result);
     return;
   }
 
-  completeAuthentication(result.data?.user, { email, name: email }, TEXT.loginSuccess);
+  const user = result.data?.user;
+  if (requireAdmin && !user?.isAdmin) {
+    clearClientSession();
+    await logoutFromServer();
+    setMessage(TEXT.adminAccessOnly, 'error');
+    return;
+  }
+
+  completeAuthentication(user, { email, name: email }, successMessage, redirectPath);
+}
+
+async function handleLogin(event) {
+  event.preventDefault();
+
+  const formData = new FormData(loginFormEl);
+  const email = mapLegacySeedEmail(formData.get('email'));
+  const password = String(formData.get('password') || '');
+  await submitLogin({ email, password });
+}
+
+async function handleAdminLogin(event) {
+  event.preventDefault();
+
+  const formData = new FormData(adminLoginFormEl);
+  const email = mapLegacySeedEmail(formData.get('email'));
+  const password = String(formData.get('password') || '');
+  await submitLogin({
+    email,
+    password,
+    requireAdmin: true,
+    successMessage: TEXT.adminLoginSuccess,
+    redirectPath: '/admin',
+  });
 }
 
 async function handleRegister(event) {
@@ -295,17 +360,24 @@ async function bootstrapExistingLogin() {
   }
 
   setClientSession(result.data.user);
-  setMessage(TEXT.bootstrapLoggedIn, 'success');
+  if (result.data.user.isAdmin && isAdminPath(nextPath)) {
+    setMessage(TEXT.bootstrapLoggedInAdmin, 'success');
+    return;
+  }
+
+  setMessage(TEXT.bootstrapLoggedInUser, 'success');
 }
 
 hydrateStaticText();
 
 tabLoginEl.addEventListener('click', () => setMode('login'));
 tabRegisterEl.addEventListener('click', () => setMode('register'));
+tabAdminEl.addEventListener('click', () => setMode('admin'));
 loginFormEl.addEventListener('submit', handleLogin);
 registerFormEl.addEventListener('submit', handleRegister);
+adminLoginFormEl.addEventListener('submit', handleAdminLogin);
 
 renderSeedAccounts();
 clearSeedAccountLocks();
-setMode('login');
+setMode(isAdminPath(nextPath) ? 'admin' : 'login');
 bootstrapExistingLogin();

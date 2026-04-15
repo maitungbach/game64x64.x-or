@@ -2,6 +2,24 @@
 function configureRealtime(io, deps) {
   const { config, stats, auth, game } = deps;
 
+  async function releaseClosedRoom(roomId, options = {}) {
+    if (!roomId) {
+      return;
+    }
+
+    const skipSocketId = options.skipSocketId || null;
+    const sockets = await io.in(roomId).fetchSockets();
+    for (const roomSocket of sockets) {
+      roomSocket.data.roomId = null;
+      roomSocket.leave(roomId);
+      await game.assignPlayerToRoom(roomSocket.id, null);
+      if (roomSocket.id !== skipSocketId) {
+        roomSocket.emit('roomClosed', { roomId });
+      }
+      await game.emitPlayersNow({ playerId: roomSocket.id, socket: roomSocket });
+    }
+  }
+
   io.use((socket, next) => {
     (async () => {
       if (!auth.isTrustedOriginRequest(socket.request)) {
@@ -39,7 +57,9 @@ function configureRealtime(io, deps) {
       const createdPlayer = await game.connectPlayer(socket.id);
       if (!createdPlayer) {
         socket.disconnect(true);
+        return;
       }
+      await game.emitPlayersNow({ playerId: socket.id, socket });
     })().catch((error) => {
       stats.errorsTotal += 1;
       console.error('[connection] failed:', error);
@@ -82,7 +102,7 @@ function configureRealtime(io, deps) {
         const roomPlayerId = socket?.data?.auth?.userId || socket.id;
         let scored = false;
         if (game.usesRedisStorage()) {
-          const moved = await game.movePlayerRedis(socket.id, direction);
+          const moved = await game.movePlayerRedis(socket.id, direction, roomId);
           if (moved.state === 'occupied') {
             stats.movesRejectedOccupied += 1;
             game.emitMoveAck(socket, seq, false, 'occupied', player);
@@ -100,13 +120,12 @@ function configureRealtime(io, deps) {
               scored = true;
             }
           }
-          game.emitPlayerMoved(updatedPlayer, seq);
+          game.emitPlayerMoved(updatedPlayer, seq, roomId, socket);
           game.emitMoveAck(socket, seq, true, null, updatedPlayer);
-          await game.emitPlayersNow();
           stats.movesApplied += 1;
         } else {
           const next = game.getNextPosition(player, direction);
-          if (await game.isOccupied(next.x, next.y, socket.id)) {
+          if (await game.isOccupied(next.x, next.y, socket.id, roomId)) {
             stats.movesRejectedOccupied += 1;
             game.emitMoveAck(socket, seq, false, 'occupied', player);
             return;
@@ -122,9 +141,8 @@ function configureRealtime(io, deps) {
               scored = true;
             }
           }
-          game.emitPlayerMoved(player, seq);
+          game.emitPlayerMoved(player, seq, roomId, socket);
           game.emitMoveAck(socket, seq, true, null, player);
-          await game.emitPlayersNow();
           stats.movesApplied += 1;
         }
         if (scored && roomId) {
@@ -147,9 +165,10 @@ function configureRealtime(io, deps) {
         if (roomId) {
           const result = game.leaveRoom(roomId, userId || socket.id);
           if (result.closed) {
-            socket.to(roomId).emit('roomClosed', { roomId });
+            await releaseClosedRoom(roomId, { skipSocketId: socket.id });
           } else {
             socket.to(roomId).emit('roomPlayerLeft', { playerId: userId || socket.id });
+            await game.emitPlayersNow({ roomId });
           }
         }
         await game.disconnectPlayer(socket.id);
@@ -161,6 +180,7 @@ function configureRealtime(io, deps) {
     });
 
     socket.on('joinRoom', (payload) => {
+      (async () => {
       const userId = socket?.data?.auth?.userId || socket.id;
       const roomId = String(payload?.roomId || '').toUpperCase();
       if (!roomId) {
@@ -172,13 +192,25 @@ function configureRealtime(io, deps) {
         socket.emit('roomError', { message: result.reason });
         return;
       }
+      const player = await game.assignPlayerToRoom(socket.id, roomId);
+      if (!player) {
+        socket.emit('roomError', { message: 'player_not_available' });
+        return;
+      }
       socket.data.roomId = roomId;
       socket.join(roomId);
       socket.emit('roomJoined', { roomId, room: { id: result.room.id, status: result.room.status, players: result.room.players.size } });
       socket.to(roomId).emit('roomPlayerJoined', { playerId: userId, playerCount: result.room.players.size });
+      await game.emitPlayersNow({ roomId });
+      })().catch((error) => {
+        stats.errorsTotal += 1;
+        console.error('[join-room] failed:', error);
+        socket.emit('roomError', { message: 'internal_error' });
+      });
     });
 
     socket.on('leaveRoom', (_payload) => {
+      (async () => {
       const userId = socket?.data?.auth?.userId || socket.id;
       const roomId = socket?.data?.roomId || null;
       if (!roomId) {
@@ -187,12 +219,20 @@ function configureRealtime(io, deps) {
       const result = game.leaveRoom(roomId, userId);
       socket.data.roomId = null;
       socket.leave(roomId);
+      await game.assignPlayerToRoom(socket.id, null);
       if (result.closed) {
-        io.to(roomId).emit('roomClosed', { roomId });
+        await releaseClosedRoom(roomId, { skipSocketId: socket.id });
       } else {
         socket.to(roomId).emit('roomPlayerLeft', { playerId: userId });
+        await game.emitPlayersNow({ roomId });
       }
       socket.emit('roomLeft', { roomId });
+      await game.emitPlayersNow({ playerId: socket.id, socket });
+      })().catch((error) => {
+        stats.errorsTotal += 1;
+        console.error('[leave-room] failed:', error);
+        socket.emit('roomError', { message: 'internal_error' });
+      });
     });
 
     socket.on('startRoom', (_payload) => {
