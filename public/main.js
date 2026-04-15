@@ -5,8 +5,8 @@ const LOCAL_LERP = 0.55;
 const REMOTE_LERP = 0.28;
 const SNAP_DISTANCE = 4;
 const FRAME_MS_60HZ = 1000 / 60;
-const MOVE_REPEAT_INITIAL_MS = 120;
-const MOVE_REPEAT_MS = 70;
+const MOVE_REPEAT_INITIAL_MS = 90;
+const MOVE_REPEAT_MS = 45;
 
 let currentRoomId = null;
 let isRoomHost = false;

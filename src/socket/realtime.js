@@ -122,6 +122,7 @@ function configureRealtime(io, deps) {
           }
           game.emitPlayerMoved(updatedPlayer, seq, roomId);
           game.emitMoveAck(socket, seq, true, null, updatedPlayer);
+          game.scheduleEmitPlayers(roomId ? { roomId } : { playerId: socket.id });
           stats.movesApplied += 1;
         } else {
           const next = game.getNextPosition(player, direction);
@@ -143,6 +144,7 @@ function configureRealtime(io, deps) {
           }
           game.emitPlayerMoved(player, seq, roomId);
           game.emitMoveAck(socket, seq, true, null, player);
+          game.scheduleEmitPlayers(roomId ? { roomId } : { playerId: socket.id });
           stats.movesApplied += 1;
         }
         if (scored && roomId) {

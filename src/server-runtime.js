@@ -43,7 +43,6 @@ function createServerRuntime(options = {}) {
   let mongoUsers = null;
   let mongoSessions = null;
   let sweepTimer = null;
-  let snapshotTimer = null;
   let started = false;
   let stopping = false;
 
@@ -230,15 +229,6 @@ function createServerRuntime(options = {}) {
       }
     }
 
-    if (config.SNAPSHOT_INTERVAL_MS > 0) {
-      snapshotTimer = setInterval(() => {
-        game.scheduleEmitPlayers();
-      }, config.SNAPSHOT_INTERVAL_MS);
-      if (typeof snapshotTimer.unref === 'function') {
-        snapshotTimer.unref();
-      }
-    }
-
     await new Promise((resolve, reject) => {
       const onError = (error) => {
         server.off('listening', onListening);
@@ -269,11 +259,6 @@ function createServerRuntime(options = {}) {
       clearInterval(sweepTimer);
       sweepTimer = null;
     }
-    if (snapshotTimer) {
-      clearInterval(snapshotTimer);
-      snapshotTimer = null;
-    }
-
     auth.shutdown();
     game.shutdown();
 

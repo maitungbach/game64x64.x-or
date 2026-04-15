@@ -10,6 +10,8 @@ function createGameService(options) {
   const ROOM_ID_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const DEFAULT_ROOM_SIZE = 4;
   const DEFAULT_GAME_DURATION_SEC = 300;
+  const pendingRoomSnapshots = new Set();
+  const pendingPlayerSnapshots = new Set();
   let broadcastTimer = null;
   let broadcastPending = false;
   let broadcastInFlight = false;
@@ -312,15 +314,73 @@ function createGameService(options) {
     io.to(normalizedRoomId).emit('playerLeft', { id: playerId });
   }
 
-  function scheduleEmitPlayers() {
+  function queueSnapshotTarget(options = {}) {
+    const normalizedRoomId = normalizeRoomId(options.roomId);
+    if (normalizedRoomId) {
+      pendingRoomSnapshots.add(normalizedRoomId);
+      return true;
+    }
+
+    const playerId = String(options.playerId || '').trim();
+    if (playerId) {
+      pendingPlayerSnapshots.add(playerId);
+      return true;
+    }
+
+    return false;
+  }
+
+  function hasPendingSnapshots() {
+    return pendingRoomSnapshots.size > 0 || pendingPlayerSnapshots.size > 0;
+  }
+
+  async function emitPendingSnapshots() {
+    if (!hasPendingSnapshots()) {
+      return;
+    }
+
+    const roomIds = Array.from(pendingRoomSnapshots);
+    const playerIds = Array.from(pendingPlayerSnapshots);
+    pendingRoomSnapshots.clear();
+    pendingPlayerSnapshots.clear();
+
+    for (const roomId of roomIds) {
+      await emitPlayersNow({ roomId });
+    }
+
+    if (playerIds.length === 0) {
+      return;
+    }
+
+    const sockets = await io.fetchSockets();
+    const socketsById = new Map(sockets.map((socket) => [socket.id, socket]));
+    for (const playerId of playerIds) {
+      const socket = socketsById.get(playerId);
+      if (!socket) {
+        continue;
+      }
+      await emitPlayersNow({ playerId, socket });
+    }
+  }
+
+  function scheduleEmitPlayers(options = {}) {
     if (shuttingDown) {
       return;
     }
 
-    stats.broadcastRequestsTotal += 1;
+    const queued = queueSnapshotTarget(options);
+    if (queued) {
+      stats.broadcastRequestsTotal += 1;
+    }
+
+    if (!hasPendingSnapshots()) {
+      return;
+    }
 
     if (broadcastTimer || broadcastInFlight) {
-      stats.broadcastsCoalesced += 1;
+      if (queued) {
+        stats.broadcastsCoalesced += 1;
+      }
       broadcastPending = true;
       return;
     }
@@ -330,13 +390,13 @@ function createGameService(options) {
       broadcastInFlight = true;
 
       try {
-        await emitPlayersNow();
+        await emitPendingSnapshots();
       } catch (error) {
         stats.errorsTotal += 1;
         console.error('[broadcast] failed:', error);
       } finally {
         broadcastInFlight = false;
-        if (broadcastPending) {
+        if (broadcastPending || hasPendingSnapshots()) {
           broadcastPending = false;
           scheduleEmitPlayers();
         }
@@ -370,7 +430,6 @@ function createGameService(options) {
       }
 
       if (removed > 0) {
-        scheduleEmitPlayers();
         console.log(`[reconcile] Removed ${removed} stale players from Redis.`);
       }
     } catch (error) {
@@ -866,6 +925,8 @@ function createGameService(options) {
     for (const roomId of roomEndTimers.keys()) {
       clearRoomEndTimer(roomId);
     }
+    pendingRoomSnapshots.clear();
+    pendingPlayerSnapshots.clear();
     broadcastPending = false;
     broadcastInFlight = false;
     players.clear();
