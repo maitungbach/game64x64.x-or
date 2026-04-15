@@ -61,7 +61,7 @@ async function main() {
   });
 
   const sockets = [];
-  let duplicateDetected = false;
+  let foreignVisibilityDetected = false;
 
   try {
     await delay(500);
@@ -70,9 +70,8 @@ async function main() {
       const socket = connectClient();
       socket.on('updatePlayers', (players) => {
         const list = Array.isArray(players) ? players : [];
-        const cells = new Set(list.map((player) => `${player.x}:${player.y}`));
-        if (cells.size !== list.length) {
-          duplicateDetected = true;
+        if (list.some((player) => player.id !== socket.id)) {
+          foreignVisibilityDetected = true;
         }
       });
       sockets.push(socket);
@@ -94,7 +93,11 @@ async function main() {
 
     await delay(1000);
 
-    assert.strictEqual(duplicateDetected, false, 'Detected duplicate cell occupancy in updates');
+    assert.strictEqual(
+      foreignVisibilityDetected,
+      false,
+      'Players outside rooms should not see squares from other solo players'
+    );
 
     const verifyRedis = createClient({ url: REDIS_URL });
     await verifyRedis.connect();
@@ -106,7 +109,7 @@ async function main() {
 
     assert.strictEqual(ghostRaw, null, 'Expected stale ghost player to be swept');
     assert.strictEqual(playersCount, cellsCount, 'Redis players/cells index mismatch');
-    console.log('PASS redis atomic: no duplicate occupancy + consistent redis indexes');
+    console.log('PASS redis atomic: solo isolation + consistent redis indexes');
   } finally {
     for (const socket of sockets) {
       socket.disconnect();

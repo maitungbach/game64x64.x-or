@@ -21,12 +21,12 @@ function createGameService(options) {
     return normalized || null;
   }
 
-  function getCellScope(roomId) {
+  function getCellScope(roomId, playerId = '') {
     const normalizedRoomId = normalizeRoomId(roomId);
     if (normalizedRoomId) {
       return `room:${normalizedRoomId}`;
     }
-    return 'global';
+    return `solo:${playerId}`;
   }
 
   function generateRoomId() {
@@ -200,10 +200,13 @@ function createGameService(options) {
             if player.roomId ~= nil and player.roomId ~= cjson.null then
               roomId = tostring(player.roomId)
             end
-            local scope = (roomId ~= '' and ('room:' .. roomId)) or 'global'
+            local soloScope = 'solo:' .. tostring(player.id)
+            local scope = (roomId ~= '' and ('room:' .. roomId)) or soloScope
             local cell = scope .. ':' .. tostring(player.x) .. ':' .. tostring(player.y)
             redis.call('HDEL', cellsKey, cell)
             if roomId == '' then
+              redis.call('HDEL', cellsKey, 'global:' .. tostring(player.x) .. ':' .. tostring(player.y))
+              redis.call('HDEL', cellsKey, soloScope .. ':' .. tostring(player.x) .. ':' .. tostring(player.y))
               redis.call('HDEL', cellsKey, tostring(player.x) .. ':' .. tostring(player.y))
             end
           end
@@ -217,6 +220,9 @@ function createGameService(options) {
 
   async function isOccupied(x, y, ignoreId = null, roomId = null) {
     const normalizedRoomId = normalizeRoomId(roomId);
+    if (!normalizedRoomId) {
+      return false;
+    }
     const list = await getPlayersList();
     return list.some(
       (player) =>
@@ -229,6 +235,12 @@ function createGameService(options) {
 
   async function findSpawnPosition(roomId = null) {
     const normalizedRoomId = normalizeRoomId(roomId);
+    if (!normalizedRoomId) {
+      return {
+        x: randomInt(config.GRID_SIZE),
+        y: randomInt(config.GRID_SIZE),
+      };
+    }
     for (let i = 0; i < config.MAX_SPAWN_ATTEMPTS; i += 1) {
       const x = randomInt(config.GRID_SIZE);
       const y = randomInt(config.GRID_SIZE);
@@ -295,7 +307,6 @@ function createGameService(options) {
   function emitPlayerLeft(playerId, roomId) {
     const normalizedRoomId = normalizeRoomId(roomId);
     if (!normalizedRoomId) {
-      io.emit('playerLeft', { id: playerId });
       return;
     }
     io.to(normalizedRoomId).emit('playerLeft', { id: playerId });
@@ -376,6 +387,19 @@ function createGameService(options) {
 
     const normalizedRoomId = normalizeRoomId(roomId);
     const color = randomColor();
+    if (!normalizedRoomId) {
+      const x = randomInt(config.GRID_SIZE);
+      const y = randomInt(config.GRID_SIZE);
+      const player = { id: playerId, x, y, color, roomId: null };
+      await redisDataClient.hSet(
+        config.REDIS_CELLS_KEY,
+        `${getCellScope(null, playerId)}:${toCellKey(x, y)}`,
+        playerId
+      );
+      await redisDataClient.hSet(config.REDIS_PLAYERS_KEY, playerId, JSON.stringify(player));
+      return player;
+    }
+
     let fallback = null;
 
     for (let i = 0; i < config.MAX_SPAWN_ATTEMPTS; i += 1) {
@@ -415,7 +439,7 @@ function createGameService(options) {
       );
 
       if (claimed === 1) {
-        return { id: playerId, x, y, color, roomId: normalizedRoomId || null };
+        return { id: playerId, x, y, color, roomId: normalizedRoomId };
       }
     }
 
@@ -455,7 +479,7 @@ function createGameService(options) {
         );
 
         if (claimed === 1) {
-          fallback = { id: playerId, x, y, color, roomId: normalizedRoomId || null };
+          fallback = { id: playerId, x, y, color, roomId: normalizedRoomId };
           break;
         }
       }
@@ -502,8 +526,6 @@ function createGameService(options) {
     if (!player) {
       return null;
     }
-    scheduleEmitPlayers();
-    emitPlayerJoined(player);
     return player;
   }
 
@@ -556,7 +578,7 @@ function createGameService(options) {
           return -1
         end
 
-        local scope = (currentRoomId ~= '' and ('room:' .. currentRoomId)) or 'global'
+        local scope = (currentRoomId ~= '' and ('room:' .. currentRoomId)) or ('solo:' .. tostring(player.id))
         local toCell = scope .. ':' .. tostring(toX) .. ':' .. tostring(toY)
 
         local fromCell = scope .. ':' .. tostring(player.x) .. ':' .. tostring(player.y)
@@ -685,15 +707,41 @@ function createGameService(options) {
         return;
       }
 
-      const list = await getPlayersList();
-      options.socket.emit('updatePlayers', list);
+      options.socket.emit('updatePlayers', [player]);
       stats.broadcastsEmitted += 1;
       return;
     }
 
+    const sockets = await io.fetchSockets();
+    if (sockets.length === 0) {
+      return;
+    }
+
     const list = await getPlayersList();
-    io.emit('updatePlayers', list);
-    stats.broadcastsEmitted += 1;
+    const playersById = new Map(list.map((player) => [player.id, player]));
+    const playersByRoomId = new Map();
+
+    for (const player of list) {
+      const playerRoomId = normalizeRoomId(player.roomId);
+      if (!playerRoomId) {
+        continue;
+      }
+      const roomPlayers = playersByRoomId.get(playerRoomId) || [];
+      roomPlayers.push(player);
+      playersByRoomId.set(playerRoomId, roomPlayers);
+    }
+
+    for (const socket of sockets) {
+      const socketRoomId = normalizeRoomId(socket?.data?.roomId);
+      if (socketRoomId) {
+        socket.emit('updatePlayers', playersByRoomId.get(socketRoomId) || []);
+      } else {
+        const player = playersById.get(socket.id);
+        socket.emit('updatePlayers', player ? [player] : []);
+      }
+    }
+
+    stats.broadcastsEmitted += sockets.length;
   }
 
   function emitMoveAck(socket, seq, ok, reason, player = null) {
@@ -722,22 +770,7 @@ function createGameService(options) {
     const normalizedRoomId = normalizeRoomId(roomId || player.roomId);
     if (normalizedRoomId) {
       io.to(normalizedRoomId).emit('playerMoved', payload);
-      return;
     }
-    io.emit('playerMoved', payload);
-  }
-
-  function emitPlayerJoined(player, roomId = null) {
-    if (!player) {
-      return;
-    }
-
-    const normalizedRoomId = normalizeRoomId(roomId || player.roomId);
-    if (normalizedRoomId) {
-      io.to(normalizedRoomId).emit('playerJoined', player);
-      return;
-    }
-    io.emit('playerJoined', player);
   }
 
   function consumeMoveRateLimit(playerId, moveIntervalMs) {
@@ -757,8 +790,9 @@ function createGameService(options) {
 
     await removePlayer(playerId);
     lastMoveAt.delete(playerId);
-    scheduleEmitPlayers();
-    emitPlayerLeft(playerId, roomId);
+    if (normalizeRoomId(roomId)) {
+      emitPlayerLeft(playerId, roomId);
+    }
   }
 
   function getSocketsOnlineCount() {

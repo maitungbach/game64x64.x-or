@@ -164,14 +164,16 @@ function configureRealtime(io, deps) {
         const roomId = socket?.data?.roomId || null;
         if (roomId) {
           const result = game.leaveRoom(roomId, userId || socket.id);
+          await game.disconnectPlayer(socket.id, roomId);
           if (result.closed) {
             await releaseClosedRoom(roomId, { skipSocketId: socket.id });
           } else {
             socket.to(roomId).emit('roomPlayerLeft', { playerId: userId || socket.id });
             await game.emitPlayersNow({ roomId });
           }
+        } else {
+          await game.disconnectPlayer(socket.id, roomId);
         }
-        await game.disconnectPlayer(socket.id, roomId);
         auth.scheduleSessionRelease(userId, authToken);
       })().catch((error) => {
         stats.errorsTotal += 1;

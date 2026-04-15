@@ -29,6 +29,33 @@ function connectClient(extraHeaders = null) {
   });
 }
 
+function getNextPosition(player, direction) {
+  const next = { x: player.x, y: player.y };
+  if (direction === 'up') {
+    next.y = Math.max(0, player.y - 1);
+  } else if (direction === 'down') {
+    next.y = Math.min(63, player.y + 1);
+  } else if (direction === 'left') {
+    next.x = Math.max(0, player.x - 1);
+  } else if (direction === 'right') {
+    next.x = Math.min(63, player.x + 1);
+  }
+  return next;
+}
+
+function pickMoveDirection(player) {
+  if (player.x < 63) {
+    return 'right';
+  }
+  if (player.x > 0) {
+    return 'left';
+  }
+  if (player.y < 63) {
+    return 'down';
+  }
+  return 'up';
+}
+
 function waitForConnect(socket) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Connect timeout')), 4000);
@@ -86,22 +113,73 @@ async function run() {
 
     await Promise.all([waitForConnect(c1), waitForConnect(c2), waitForConnect(c3)]);
 
-    await waitFor(() => state.c1.length >= 3);
+    await waitFor(
+      () =>
+        state.c1.length === 1 &&
+        state.c1[0]?.id === c1.id &&
+        state.c2.length === 1 &&
+        state.c2[0]?.id === c2.id &&
+        state.c3.length === 1 &&
+        state.c3[0]?.id === c3.id
+    );
 
     const meBefore = state.c1.find((player) => player.id === c1.id);
     assert(meBefore, 'Client 1 not found in player list');
 
-    c1.emit('move', { direction: 'right' });
+    const soloDirection = pickMoveDirection(meBefore);
+    const expectedSoloPos = getNextPosition(meBefore, soloDirection);
+    c1.emit('move', { direction: soloDirection });
+    await waitFor(() => {
+      const moved = state.c1.find((player) => player.id === c1.id);
+      return Boolean(moved && moved.x === expectedSoloPos.x && moved.y === expectedSoloPos.y);
+    });
+    await delay(120);
+    assert.strictEqual(
+      state.c2.some((player) => player.id === c1.id),
+      false,
+      'Players outside rooms should not see each other'
+    );
+
+    const room = serverHandle.runtime.game.createRoom(c1.id, { maxPlayers: 4 });
+    let c1RoomJoined = null;
+    let c2RoomJoined = null;
+    c1.once('roomJoined', (payload) => {
+      c1RoomJoined = payload;
+    });
+    c2.once('roomJoined', (payload) => {
+      c2RoomJoined = payload;
+    });
+    c1.emit('joinRoom', { roomId: room.id });
+    c2.emit('joinRoom', { roomId: room.id });
+
+    await waitFor(() => c1RoomJoined?.roomId === room.id && c2RoomJoined?.roomId === room.id);
+    await waitFor(
+      () =>
+        state.c1.length === 2 &&
+        state.c2.length === 2 &&
+        state.c3.length === 1 &&
+        state.c1.some((player) => player.id === c1.id) &&
+        state.c1.some((player) => player.id === c2.id) &&
+        state.c2.some((player) => player.id === c1.id) &&
+        state.c2.some((player) => player.id === c2.id) &&
+        state.c3[0]?.id === c3.id
+    );
+
+    const roomMeBefore = state.c1.find((player) => player.id === c1.id);
+    assert(roomMeBefore, 'Client 1 should still exist after joining room');
+    const roomDirection = pickMoveDirection(roomMeBefore);
+    const expectedRoomPos = getNextPosition(roomMeBefore, roomDirection);
+    c1.emit('move', { direction: roomDirection });
     await waitFor(() => {
       const moved = state.c2.find((player) => player.id === c1.id);
-      return Boolean(moved && moved.x >= meBefore.x);
+      return Boolean(moved && moved.x === expectedRoomPos.x && moved.y === expectedRoomPos.y);
     });
 
     let invalidMoveAck = null;
     c1.once('moveAck', (payload) => {
       invalidMoveAck = payload;
     });
-    c1.emit('move', { x: meBefore.x + 8, y: meBefore.y + 8, seq: 999 });
+    c1.emit('move', { x: roomMeBefore.x + 8, y: roomMeBefore.y + 8, seq: 999 });
     await waitFor(() => invalidMoveAck !== null);
     assert.strictEqual(invalidMoveAck?.ok, false, 'Coordinate teleport should be rejected');
     assert.strictEqual(
@@ -119,12 +197,20 @@ async function run() {
     foreignOriginClient.close();
     foreignOriginClient = null;
 
-    const c3Id = c3.id;
-    c3.disconnect();
+    const c2Id = c2.id;
+    c2.disconnect();
+    c2 = null;
 
-    await waitFor(() => !state.c1.some((player) => player.id === c3Id));
+    await waitFor(
+      () =>
+        state.c1.length === 1 &&
+        state.c1[0]?.id === c1.id &&
+        !state.c1.some((player) => player.id === c2Id) &&
+        state.c3.length === 1 &&
+        state.c3[0]?.id === c3.id
+    );
 
-    console.log('PASS realtime smoke: connect/move/disconnect');
+    console.log('PASS realtime smoke: solo isolation + room visibility + disconnect');
   } finally {
     if (c1) {
       c1.disconnect();
