@@ -120,7 +120,7 @@ function configureRealtime(io, deps) {
               scored = true;
             }
           }
-          game.emitPlayerMoved(updatedPlayer, seq, roomId, socket);
+          game.emitPlayerMoved(updatedPlayer, seq, roomId);
           game.emitMoveAck(socket, seq, true, null, updatedPlayer);
           stats.movesApplied += 1;
         } else {
@@ -141,7 +141,7 @@ function configureRealtime(io, deps) {
               scored = true;
             }
           }
-          game.emitPlayerMoved(player, seq, roomId, socket);
+          game.emitPlayerMoved(player, seq, roomId);
           game.emitMoveAck(socket, seq, true, null, player);
           stats.movesApplied += 1;
         }
@@ -171,7 +171,7 @@ function configureRealtime(io, deps) {
             await game.emitPlayersNow({ roomId });
           }
         }
-        await game.disconnectPlayer(socket.id);
+        await game.disconnectPlayer(socket.id, roomId);
         auth.scheduleSessionRelease(userId, authToken);
       })().catch((error) => {
         stats.errorsTotal += 1;
