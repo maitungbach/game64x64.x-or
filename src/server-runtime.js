@@ -127,25 +127,32 @@ function createServerRuntime(options = {}) {
       return;
     }
 
-    redisPubClient = createClient({ url: config.REDIS_URL });
-    redisSubClient = redisPubClient.duplicate();
-    redisDataClient = redisPubClient.duplicate();
+    try {
+      redisPubClient = createClient({ url: config.REDIS_URL });
+      redisSubClient = redisPubClient.duplicate();
+      redisDataClient = redisPubClient.duplicate();
 
-    attachRedisClientHandlers(redisPubClient, 'pub');
-    attachRedisClientHandlers(redisSubClient, 'sub');
-    attachRedisClientHandlers(redisDataClient, 'data');
+      attachRedisClientHandlers(redisPubClient, 'pub');
+      attachRedisClientHandlers(redisSubClient, 'sub');
+      attachRedisClientHandlers(redisDataClient, 'data');
 
-    await Promise.all([
-      redisPubClient.connect(),
-      redisSubClient.connect(),
-      redisDataClient.connect(),
-    ]);
+      await Promise.all([
+        redisPubClient.connect(),
+        redisSubClient.connect(),
+        redisDataClient.connect(),
+      ]);
 
-    io.adapter(createAdapter(redisPubClient, redisSubClient));
-    console.log(
-      `[startup] Redis enabled at ${config.getRedactedRedisUrl()}. Socket.io adapter active.`
-    );
-    await game.rebuildRedisCellsIndex();
+      io.adapter(createAdapter(redisPubClient, redisSubClient));
+      console.log(
+        `[startup] Redis enabled at ${config.getRedactedRedisUrl()}. Socket.io adapter active.`
+      );
+      await game.rebuildRedisCellsIndex();
+    } catch (error) {
+      console.error('[startup] Redis connection failed. Falling back to in-memory player store.', error);
+      redisPubClient = null;
+      redisSubClient = null;
+      redisDataClient = null;
+    }
   }
 
   async function connectMongoIfEnabled() {
@@ -153,21 +160,28 @@ function createServerRuntime(options = {}) {
       return;
     }
 
-    mongoClient = new MongoClient(config.MONGO_URL, { maxPoolSize: 10 });
-    await mongoClient.connect();
-    const mongoDb = mongoClient.db(config.MONGO_DB_NAME);
-    mongoUsers = mongoDb.collection('users');
-    mongoSessions = mongoDb.collection('sessions');
+    try {
+      mongoClient = new MongoClient(config.MONGO_URL, { maxPoolSize: 10 });
+      await mongoClient.connect();
+      const mongoDb = mongoClient.db(config.MONGO_DB_NAME);
+      mongoUsers = mongoDb.collection('users');
+      mongoSessions = mongoDb.collection('sessions');
 
-    await Promise.all([
-      mongoUsers.createIndex({ email: 1 }, { unique: true }),
-      mongoUsers.createIndex({ id: 1 }, { unique: true }),
-      mongoSessions.createIndex({ token: 1 }, { unique: true }),
-      mongoSessions.createIndex({ userId: 1 }),
-      mongoSessions.createIndex({ expiresAtDate: 1 }, { expireAfterSeconds: 0 }),
-    ]);
+      await Promise.all([
+        mongoUsers.createIndex({ email: 1 }, { unique: true }),
+        mongoUsers.createIndex({ id: 1 }, { unique: true }),
+        mongoSessions.createIndex({ token: 1 }, { unique: true }),
+        mongoSessions.createIndex({ userId: 1 }),
+        mongoSessions.createIndex({ expiresAtDate: 1 }, { expireAfterSeconds: 0 }),
+      ]);
 
-    console.log('[startup] MongoDB enabled for auth storage.');
+      console.log('[startup] MongoDB enabled for auth storage.');
+    } catch (error) {
+      console.error('[startup] MongoDB connection failed. Auth will use in-memory storage.', error);
+      mongoClient = null;
+      mongoUsers = null;
+      mongoSessions = null;
+    }
   }
 
   registerAppRoutes({

@@ -4,6 +4,13 @@ const { startTestServer } = require('./helpers/server-harness.js');
 
 const TEST_PORT = 3101;
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
+const OBSTACLES = [
+  { x: 10, y: 10, w: 5, h: 1 },
+  { x: 50, y: 10, w: 1, h: 5 },
+  { x: 32, y: 32, w: 4, h: 4 },
+  { x: 10, y: 50, w: 10, h: 1 },
+  { x: 50, y: 50, w: 2, h: 10 },
+];
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,6 +36,12 @@ function connectClient(extraHeaders = null) {
   });
 }
 
+function isWall(x, y) {
+  return OBSTACLES.some(
+    (wall) => x >= wall.x && x < wall.x + wall.w && y >= wall.y && y < wall.y + wall.h
+  );
+}
+
 function getNextPosition(player, direction) {
   const next = { x: player.x, y: player.y };
   if (direction === 'up') {
@@ -40,18 +53,19 @@ function getNextPosition(player, direction) {
   } else if (direction === 'right') {
     next.x = Math.min(63, player.x + 1);
   }
+  if (isWall(next.x, next.y)) {
+    return { x: player.x, y: player.y };
+  }
   return next;
 }
 
 function pickMoveDirection(player) {
-  if (player.x < 63) {
-    return 'right';
-  }
-  if (player.x > 0) {
-    return 'left';
-  }
-  if (player.y < 63) {
-    return 'down';
+  const directions = ['right', 'left', 'down', 'up'];
+  for (const direction of directions) {
+    const next = getNextPosition(player, direction);
+    if (next.x !== player.x || next.y !== player.y) {
+      return direction;
+    }
   }
   return 'up';
 }

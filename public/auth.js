@@ -1,69 +1,28 @@
 const {
-  TEST_USERS_SEED,
   callApi,
-  clearClientSession,
-  clearSeedAccountLocks,
-  isLockedByAnotherTab,
-  isSeedTestEmail,
-  logoutFromServer,
-  mapLegacySeedEmail,
   normalizeEmail,
   setClientSession,
+  clearClientSession,
+  isSeedTestEmail,
+  mapLegacySeedEmail,
 } = window.Game64Auth;
-
-const ADMIN_PATHS = new Set(['/admin', '/admin.html']);
-
+/* eslint-disable-next-line no-unused-vars */
+const TEST_USERS_SEED = [
+  { name: 'Tài khoản kiểm thử 01', email: 'tester01@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 02', email: 'tester02@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 03', email: 'tester03@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 04', email: 'tester04@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 05', email: 'tester05@example.com', password: 'Test123!' },
+];
 const tabLoginEl = document.getElementById('tabLogin');
 const tabRegisterEl = document.getElementById('tabRegister');
-const tabAdminEl = document.getElementById('tabAdmin');
 const loginFormEl = document.getElementById('loginForm');
 const registerFormEl = document.getElementById('registerForm');
-const adminLoginFormEl = document.getElementById('adminLoginForm');
 const authMessageEl = document.getElementById('authMessage');
 const seedListEl = document.getElementById('seedList');
-const testAccountsEl = document.querySelector('.test-accounts');
-
-const TEXT = Object.freeze({
-  adminAccessOnly: 'Tài khoản này không có quyền admin.',
-  adminButton: 'Đăng nhập trang admin',
-  adminHeading: 'Đăng nhập admin',
-  adminLoginSuccess: 'Đăng nhập admin thành công. Đang chuyển đến trang điều hành...',
-  adminNote:
-    'Dành riêng cho tài khoản admin. Sau khi xác thực thành công, hệ thống sẽ chuyển thẳng vào trang điều hành.',
-  bootstrapLoggedInAdmin: "Bạn đã đăng nhập admin. Nhấn 'Vào game' hoặc mở trang quản trị để tiếp tục.",
-  bootstrapLoggedInUser: "Bạn đã đăng nhập. Nhấn 'Vào game' để tiếp tục.",
-  authModeLabel: 'Chế độ xác thực',
-  authTitle: 'Đăng nhập / Đăng ký - Game 64x64',
-  backToGame: 'Vào game',
-  bootstrapLoggedIn: "Bạn đã đăng nhập. Nhấn 'Vào game' để tiếp tục.",
-  concurrentOnline: 'Tài khoản này đang online ở nơi khác.',
-  duplicateEmail: 'Email đã tồn tại hoặc đang online.',
-  heading: 'Tài khoản Game 64x64',
-  invalidConfirmPassword: 'Mật khẩu nhập lại không khớp.',
-  invalidEmail: 'Email không hợp lệ.',
-  invalidName: 'Tên hiển thị phải có ít nhất 2 ký tự.',
-  invalidPassword: 'Mật khẩu phải có ít nhất 6 ký tự.',
-  lockedByTab: 'Tài khoản này đang đăng nhập ở tab khác.',
-  loginButton: 'Đăng nhập và vào game',
-  loginSuccess: 'Đăng nhập thành công. Đang chuyển về trang game...',
-  missingPassword: 'Vui lòng nhập mật khẩu.',
-  note: 'Đăng nhập được xử lý bởi máy chủ. Tài khoản thường giới hạn 1 phiên, riêng 5 tài khoản kiểm thử có thể đăng nhập song song.',
-  registerButton: 'Tạo tài khoản',
-  registerFailed: 'Không tạo được tài khoản.',
-  registerRateLimitedPrefix: 'Bạn thao tác quá nhanh. Thử lại sau ',
-  registerSuccess: 'Tạo tài khoản thành công. Đang chuyển về trang game...',
-  seedHeading: '5 tài khoản kiểm thử',
-  serverUnavailable: 'Không kết nối được máy chủ.',
-  subtitle: 'Đăng nhập hoặc tạo tài khoản để lưu tên người chơi trên trình duyệt này.',
-  wrongCredentials: 'Sai email hoặc mật khẩu.',
-});
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
-function isAdminPath(path) {
-  return ADMIN_PATHS.has(String(path || '').toLowerCase());
 }
 
 function getNextPath() {
@@ -86,56 +45,98 @@ function setMessage(text, type) {
 
 function setMode(mode) {
   const loginActive = mode === 'login';
-  const registerActive = mode === 'register';
-  const adminActive = mode === 'admin';
-
   tabLoginEl.classList.toggle('is-active', loginActive);
-  tabRegisterEl.classList.toggle('is-active', registerActive);
-  tabAdminEl.classList.toggle('is-active', adminActive);
+  tabRegisterEl.classList.toggle('is-active', !loginActive);
   loginFormEl.classList.toggle('is-hidden', !loginActive);
-  registerFormEl.classList.toggle('is-hidden', !registerActive);
-  adminLoginFormEl.classList.toggle('is-hidden', !adminActive);
+  registerFormEl.classList.toggle('is-hidden', loginActive);
   setMessage('');
 }
 
-function setElementText(element, text) {
-  if (element) {
-    element.textContent = text;
-  }
-}
+const DISPLAY_TEST_USERS_SEED = [
+  { name: 'Tài khoản kiểm thử 01', email: 'tester01@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 02', email: 'tester02@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 03', email: 'tester03@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 04', email: 'tester04@example.com', password: 'Test123!' },
+  { name: 'Tài khoản kiểm thử 05', email: 'tester05@example.com', password: 'Test123!' },
+];
 
-function setText(selector, text) {
-  setElementText(document.querySelector(selector), text);
+function redirectToGame(delayMs = 300) {
+  window.setTimeout(() => {
+    window.location.href = nextPath;
+  }, delayMs);
 }
 
 function hydrateStaticText() {
-  document.title = TEXT.authTitle;
+  document.title = 'Đăng nhập / Đăng ký - Game 64x64';
 
-  setText('.back-link', TEXT.backToGame);
-  setText('.auth-panel h1', TEXT.heading);
-  setText('.subtitle', TEXT.subtitle);
-  setText('label[for="loginEmail"]', 'Email');
-  setText('label[for="loginPassword"]', 'Mật khẩu');
-  setText('label[for="registerName"]', 'Tên hiển thị');
-  setText('label[for="registerEmail"]', 'Email');
-  setText('label[for="registerPassword"]', 'Mật khẩu');
-  setText('label[for="registerConfirm"]', 'Nhập lại mật khẩu');
-  setText('label[for="adminEmail"]', 'Email admin');
-  setText('label[for="adminPassword"]', 'Mật khẩu');
-  setText('.admin-login-note', TEXT.adminNote);
-  setText(
-    '.note',
-    TEST_USERS_SEED.length > 0
-      ? TEXT.note
-      : 'Đăng nhập được xử lý bởi máy chủ. Tài khoản thường giới hạn 1 phiên.'
-  );
-  if (TEST_USERS_SEED.length > 0) {
-    setText('.test-accounts h2', TEXT.seedHeading);
+  const backLink = document.querySelector('.back-link');
+  if (backLink) {
+    backLink.textContent = 'Vào game';
+  }
+
+  const heading = document.querySelector('.auth-panel h1');
+  if (heading) {
+    heading.textContent = 'Tài khoản Game 64x64';
+  }
+
+  const subtitle = document.querySelector('.subtitle');
+  if (subtitle) {
+    subtitle.textContent =
+      'Đăng nhập hoặc tạo tài khoản để lưu tên người chơi trên trình duyệt này.';
   }
 
   const tabs = document.querySelector('.auth-tabs');
   if (tabs) {
-    tabs.setAttribute('aria-label', TEXT.authModeLabel);
+    tabs.setAttribute('aria-label', 'Chế độ xác thực');
+  }
+
+  tabLoginEl.textContent = 'Đăng nhập';
+  tabRegisterEl.textContent = 'Đăng ký';
+
+  const loginEmailLabel = document.querySelector('label[for="loginEmail"]');
+  if (loginEmailLabel) {
+    loginEmailLabel.textContent = 'Email';
+  }
+
+  const loginPasswordLabel = document.querySelector('label[for="loginPassword"]');
+  if (loginPasswordLabel) {
+    loginPasswordLabel.textContent = 'Mật khẩu';
+  }
+
+  const loginSubmit = loginFormEl.querySelector('button[type="submit"]');
+  if (loginSubmit) {
+    loginSubmit.textContent = 'Đăng nhập và vào game';
+  }
+
+  const registerNameLabel = document.querySelector('label[for="registerName"]');
+  if (registerNameLabel) {
+    registerNameLabel.textContent = 'Tên hiển thị';
+  }
+
+  const registerEmailLabel = document.querySelector('label[for="registerEmail"]');
+  if (registerEmailLabel) {
+    registerEmailLabel.textContent = 'Email';
+  }
+
+  const registerPasswordLabel = document.querySelector('label[for="registerPassword"]');
+  if (registerPasswordLabel) {
+    registerPasswordLabel.textContent = 'Mật khẩu';
+  }
+
+  const registerConfirmLabel = document.querySelector('label[for="registerConfirm"]');
+  if (registerConfirmLabel) {
+    registerConfirmLabel.textContent = 'Nhập lại mật khẩu';
+  }
+
+  const registerSubmit = registerFormEl.querySelector('button[type="submit"]');
+  if (registerSubmit) {
+    registerSubmit.textContent = 'Tạo tài khoản';
+  }
+
+  const note = document.querySelector('.note');
+  if (note) {
+    note.textContent =
+      'Đăng nhập được xử lý bởi máy chủ. Tài khoản thường giới hạn 1 phiên, riêng 5 tài khoản kiểm thử có thể đăng nhập song song.';
   }
 
   const testAccounts = document.querySelector('.test-accounts');
@@ -143,37 +144,23 @@ function hydrateStaticText() {
     testAccounts.setAttribute('aria-label', 'Tài khoản mẫu');
   }
 
-  setElementText(tabLoginEl, 'Đăng nhập');
-  setElementText(tabRegisterEl, 'Đăng ký');
-  setElementText(tabAdminEl, TEXT.adminHeading);
-  setElementText(loginFormEl.querySelector('button[type="submit"]'), TEXT.loginButton);
-  setElementText(registerFormEl.querySelector('button[type="submit"]'), TEXT.registerButton);
-  setElementText(adminLoginFormEl.querySelector('button[type="submit"]'), TEXT.adminButton);
+  const seedHeading = document.querySelector('.test-accounts h2');
+  if (seedHeading) {
+    seedHeading.textContent = '5 tài khoản kiểm thử';
+  }
 }
 
 function renderSeedAccounts() {
-  if (!seedListEl || !testAccountsEl) {
+  if (!seedListEl) {
     return;
   }
 
-  if (TEST_USERS_SEED.length === 0) {
-    testAccountsEl.hidden = true;
-    return;
-  }
-
-  testAccountsEl.hidden = false;
   seedListEl.innerHTML = '';
-  for (const seed of TEST_USERS_SEED) {
+  for (const seed of DISPLAY_TEST_USERS_SEED) {
     const item = document.createElement('li');
     item.textContent = `${seed.email} / ${seed.password} (${seed.name})`;
     seedListEl.appendChild(item);
   }
-}
-
-function redirectToPath(path, delayMs = 300) {
-  window.setTimeout(() => {
-    window.location.href = path;
-  }, delayMs);
 }
 
 function formatRetryAfter(retryAfterSec) {
@@ -186,110 +173,65 @@ function formatRetryAfter(retryAfterSec) {
   return `${Math.ceil(retryAfterSec / 60)} phút`;
 }
 
-async function requestAuth(path, payload) {
-  try {
-    return await callApi(path, { payload });
-  } catch {
-    setMessage(TEXT.serverUnavailable, 'error');
-    return null;
-  }
-}
-
-function completeAuthentication(user, fallbackUser, successMessage, redirectPath = nextPath) {
-  setClientSession(user || fallbackUser);
-  setMessage(successMessage, 'success');
-  redirectToPath(redirectPath);
-}
-
-function handleLoginError(result) {
-  if (result.status === 409) {
-    setMessage(TEXT.concurrentOnline, 'error');
-    return;
-  }
-  if (result.status === 429) {
-    setMessage(`Bạn thử đăng nhập lại sau ${formatRetryAfter(result.retryAfterSec)}.`, 'error');
-    return;
-  }
-  setMessage(TEXT.wrongCredentials, 'error');
-}
-
-async function submitLogin(options) {
-  const {
-    email,
-    password,
-    requireAdmin = false,
-    successMessage = TEXT.loginSuccess,
-    redirectPath = nextPath,
-  } = options;
+async function handleLogin(event) {
+  event.preventDefault();
+  const formData = new FormData(loginFormEl);
+  const email = mapLegacySeedEmail(normalizeEmail(formData.get('email')));
+  const password = String(formData.get('password') || '');
 
   if (!isValidEmail(email)) {
-    setMessage(TEXT.invalidEmail, 'error');
+    setMessage('Email không hợp lệ.', 'error');
     return;
   }
   if (!password) {
-    setMessage(TEXT.missingPassword, 'error');
-    return;
-  }
-  if (isLockedByAnotherTab(email)) {
-    setMessage(TEXT.lockedByTab, 'error');
+    setMessage('Vui lòng nhập mật khẩu.', 'error');
     return;
   }
 
-  let result = await requestAuth('/api/auth/login', { email, password });
-  if (!result) {
+  let result;
+  try {
+    result = await callApi('/api/auth/login', { payload: { email, password } });
+  } catch (_error) {
+    setMessage('Không kết nối được máy chủ.', 'error');
     return;
-  }
-
-  if (!result.ok && result.status === 409 && isSeedTestEmail(email)) {
-    result = await requestAuth('/api/auth/login', { email, password, force: true });
-    if (!result) {
-      return;
-    }
   }
 
   if (!result.ok) {
-    handleLoginError(result);
+    if (result.status === 409) {
+      if (isSeedTestEmail(email)) {
+        try {
+          result = await callApi('/api/auth/login', { payload: { email, password, force: true } });
+        } catch (_error) {
+          setMessage('Không kết nối được máy chủ.', 'error');
+          return;
+        }
+        if (result.ok) {
+          const user = result.data?.user || { email, name: email };
+          setClientSession(user);
+          setMessage('Đăng nhập thành công. Đang chuyển về trang game...', 'success');
+          redirectToGame();
+          return;
+        }
+      }
+      setMessage('Tài khoản này đang online ở nơi khác.', 'error');
+      return;
+    }
+    if (result.status === 429) {
+      setMessage(`Bạn thử đăng nhập lại sau ${formatRetryAfter(result.retryAfterSec)}.`, 'error');
+      return;
+    }
+    setMessage('Sai email hoặc mật khẩu.', 'error');
     return;
   }
 
-  const user = result.data?.user;
-  if (requireAdmin && !user?.isAdmin) {
-    clearClientSession();
-    await logoutFromServer();
-    setMessage(TEXT.adminAccessOnly, 'error');
-    return;
-  }
-
-  completeAuthentication(user, { email, name: email }, successMessage, redirectPath);
-}
-
-async function handleLogin(event) {
-  event.preventDefault();
-
-  const formData = new FormData(loginFormEl);
-  const email = mapLegacySeedEmail(formData.get('email'));
-  const password = String(formData.get('password') || '');
-  await submitLogin({ email, password });
-}
-
-async function handleAdminLogin(event) {
-  event.preventDefault();
-
-  const formData = new FormData(adminLoginFormEl);
-  const email = mapLegacySeedEmail(formData.get('email'));
-  const password = String(formData.get('password') || '');
-  await submitLogin({
-    email,
-    password,
-    requireAdmin: true,
-    successMessage: TEXT.adminLoginSuccess,
-    redirectPath: '/admin',
-  });
+  const user = result.data?.user || { email, name: email };
+  setClientSession(user);
+  setMessage('Đăng nhập thành công. Đang chuyển về trang game...', 'success');
+  redirectToGame();
 }
 
 async function handleRegister(event) {
   event.preventDefault();
-
   const formData = new FormData(registerFormEl);
   const name = String(formData.get('name') || '').trim();
   const email = normalizeEmail(formData.get('email'));
@@ -297,55 +239,57 @@ async function handleRegister(event) {
   const confirmPassword = String(formData.get('confirmPassword') || '');
 
   if (name.length < 2) {
-    setMessage(TEXT.invalidName, 'error');
+    setMessage('Tên hiển thị phải có ít nhất 2 ký tự.', 'error');
     return;
   }
   if (!isValidEmail(email)) {
-    setMessage(TEXT.invalidEmail, 'error');
+    setMessage('Email không hợp lệ.', 'error');
     return;
   }
   if (password.length < 6) {
-    setMessage(TEXT.invalidPassword, 'error');
+    setMessage('Mật khẩu phải có ít nhất 6 ký tự.', 'error');
     return;
   }
   if (password !== confirmPassword) {
-    setMessage(TEXT.invalidConfirmPassword, 'error');
-    return;
-  }
-  if (isLockedByAnotherTab(email)) {
-    setMessage(TEXT.lockedByTab, 'error');
+    setMessage('Mật khẩu nhập lại không khớp.', 'error');
     return;
   }
 
-  const result = await requestAuth('/api/auth/register', { name, email, password });
-  if (!result) {
+  let result;
+  try {
+    result = await callApi('/api/auth/register', { payload: { name, email, password } });
+  } catch (_error) {
+    setMessage('Không kết nối được máy chủ.', 'error');
     return;
   }
 
   if (!result.ok) {
     if (result.status === 409) {
-      setMessage(TEXT.duplicateEmail, 'error');
+      setMessage('Email đã tồn tại hoặc đang online.', 'error');
       return;
     }
     if (result.status === 429) {
       setMessage(
-        `${TEXT.registerRateLimitedPrefix}${formatRetryAfter(result.retryAfterSec)}.`,
+        `Bạn thao tác quá nhanh. Thử lại sau ${formatRetryAfter(result.retryAfterSec)}.`,
         'error'
       );
       return;
     }
-    setMessage(TEXT.registerFailed, 'error');
+    setMessage('Không tạo được tài khoản.', 'error');
     return;
   }
 
-  completeAuthentication(result.data?.user, { email, name }, TEXT.registerSuccess);
+  const user = result.data?.user || { email, name };
+  setClientSession(user);
+  setMessage('Tạo tài khoản thành công. Đang chuyển về trang game...', 'success');
+  redirectToGame();
 }
 
 async function bootstrapExistingLogin() {
-  let result;
+  let result = null;
   try {
     result = await callApi('/api/auth/me');
-  } catch {
+  } catch (_error) {
     return;
   }
 
@@ -354,30 +298,17 @@ async function bootstrapExistingLogin() {
     return;
   }
 
-  if (isLockedByAnotherTab(result.data.user.email)) {
-    setMessage(TEXT.lockedByTab, 'error');
-    return;
-  }
-
   setClientSession(result.data.user);
-  if (result.data.user.isAdmin && isAdminPath(nextPath)) {
-    setMessage(TEXT.bootstrapLoggedInAdmin, 'success');
-    return;
-  }
-
-  setMessage(TEXT.bootstrapLoggedInUser, 'success');
+  setMessage("Bạn đã đăng nhập. Nhấn 'Vào game' để tiếp tục.", 'success');
 }
 
 hydrateStaticText();
 
 tabLoginEl.addEventListener('click', () => setMode('login'));
 tabRegisterEl.addEventListener('click', () => setMode('register'));
-tabAdminEl.addEventListener('click', () => setMode('admin'));
 loginFormEl.addEventListener('submit', handleLogin);
 registerFormEl.addEventListener('submit', handleRegister);
-adminLoginFormEl.addEventListener('submit', handleAdminLogin);
 
 renderSeedAccounts();
-clearSeedAccountLocks();
-setMode(isAdminPath(nextPath) ? 'admin' : 'login');
+setMode('login');
 bootstrapExistingLogin();

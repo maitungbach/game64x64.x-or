@@ -1085,10 +1085,31 @@ function createGameService(options) {
     return next;
   }
 
+  // Collectible stub functions (to satisfy realtime.js calls)
+  function getCollectiblesForRoom(_roomId) {
+    return [];
+  }
+
+  function checkCollectiblePickup(_x, _y, _playerId, _roomId) {
+    return null;
+  }
+
+  function emitCollectiblesNow(_roomId) {
+    // no-op
+  }
+
+  function scheduleCollectibleSpawning() {
+    // no-op
+  }
+
   return {
     VALID_DIRECTIONS,
     addRoomScore,
     assignPlayerToRoom,
+    getCollectiblesForRoom,
+    checkCollectiblePickup,
+    emitCollectiblesNow,
+    scheduleCollectibleSpawning,
     connectPlayer,
     consumeMoveRateLimit,
     createRoom,

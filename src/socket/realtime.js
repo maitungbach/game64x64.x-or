@@ -101,6 +101,7 @@ function configureRealtime(io, deps) {
         const roomId = socket?.data?.roomId || null;
         const roomPlayerId = socket?.data?.auth?.userId || socket.id;
         let scored = false;
+        let movedPlayer = null;
         if (game.usesRedisStorage()) {
           const moved = await game.movePlayerRedis(socket.id, direction, roomId);
           if (moved.state === 'occupied') {
@@ -112,7 +113,7 @@ function configureRealtime(io, deps) {
             game.emitMoveAck(socket, seq, false, 'missing_player');
             return;
           }
-          const updatedPlayer = moved.player || player;
+          movedPlayer = moved.player || player;
           if (roomId) {
             const room = game.getRoomById(roomId);
             if (room && room.status === 'playing') {
@@ -120,8 +121,8 @@ function configureRealtime(io, deps) {
               scored = true;
             }
           }
-          game.emitPlayerMoved(updatedPlayer, seq, roomId);
-          game.emitMoveAck(socket, seq, true, null, updatedPlayer);
+          game.emitPlayerMoved(movedPlayer, seq, roomId);
+          game.emitMoveAck(socket, seq, true, null, movedPlayer);
           game.scheduleEmitPlayers(roomId ? { roomId } : { playerId: socket.id });
           stats.movesApplied += 1;
         } else {
@@ -135,6 +136,7 @@ function configureRealtime(io, deps) {
           player.x = next.x;
           player.y = next.y;
           await game.savePlayer(player);
+          movedPlayer = player;
           if (roomId) {
             const room = game.getRoomById(roomId);
             if (room && room.status === 'playing') {
@@ -147,7 +149,17 @@ function configureRealtime(io, deps) {
           game.scheduleEmitPlayers(roomId ? { roomId } : { playerId: socket.id });
           stats.movesApplied += 1;
         }
-        if (scored && roomId) {
+        if (scored && roomId && movedPlayer) {
+          const collected = game.checkCollectiblePickup(movedPlayer.x, movedPlayer.y, socket.id, roomId);
+          if (collected) {
+            game.addRoomScore(roomId, roomPlayerId, collected.points);
+            io.to(roomId).emit('collectiblePickedUp', {
+              playerId: roomPlayerId,
+              collectibleId: collected.id,
+              points: collected.points,
+            });
+            game.emitCollectiblesNow(roomId);
+          }
           const leaderboard = game.getRoomLeaderboard(roomId);
           io.to(roomId).emit('roomScoreUpdate', { leaderboard });
         }
@@ -256,7 +268,10 @@ function configureRealtime(io, deps) {
         socket.emit('roomError', { message: result.reason });
         return;
       }
+      game.scheduleCollectibleSpawning();
+      const collectibles = game.getCollectiblesForRoom(roomId);
       io.to(roomId).emit('roomStarted', { roomId, endsAt: result.room.endsAt, durationSec: result.room.gameDurationSec });
+      io.to(roomId).emit('updateCollectibles', collectibles);
     });
 
     socket.on('endRoom', () => {

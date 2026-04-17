@@ -55,6 +55,18 @@ let heldDirectionOrder = 0;
 let moveRepeatTimer = null;
 let nextMoveRepeatAt = 0;
 let lastFrameAt = 0;
+let lastUiUpdateAt = 0;
+
+// Định nghĩa một số vật cản (Walls) để bản đồ bớt trống trải
+const OBSTACLES = [
+  { x: 10, y: 10, w: 5, h: 1 },
+  { x: 50, y: 10, w: 1, h: 5 },
+  { x: 32, y: 32, w: 4, h: 4 }, // Khối vuông ở giữa
+  { x: 10, y: 50, w: 10, h: 1 },
+  { x: 50, y: 50, w: 2, h: 10 },
+];
+
+let collectibles = [];
 
 const gridLayer = document.createElement('canvas');
 gridLayer.width = CANVAS_SIZE;
@@ -162,6 +174,23 @@ function drawGridLayer() {
     gridCtx.lineTo(CANVAS_SIZE, p);
     gridCtx.stroke();
   }
+
+  // Vẽ vật cản lên lớp Grid cố định
+  gridCtx.fillStyle = '#9ca3af'; // Màu xám cho tường
+  for (const wall of OBSTACLES) {
+    gridCtx.fillRect(
+      wall.x * CELL_SIZE,
+      wall.y * CELL_SIZE,
+      wall.w * CELL_SIZE,
+      wall.h * CELL_SIZE
+    );
+  }
+}
+
+function isWall(x, y) {
+  return OBSTACLES.some(
+    (wall) => x >= wall.x && x < wall.x + wall.w && y >= wall.y && y < wall.y + wall.h
+  );
 }
 
 function getNextPosition(position, direction) {
@@ -176,6 +205,11 @@ function getNextPosition(position, direction) {
     nextX = clamp(position.x - 1, 0, GRID_SIZE - 1);
   } else if (direction === 'right') {
     nextX = clamp(position.x + 1, 0, GRID_SIZE - 1);
+  }
+
+  // Nếu chạm tường thì không cho đi tiếp
+  if (isWall(nextX, nextY)) {
+    return position;
   }
 
   return { x: nextX, y: nextY };
@@ -341,9 +375,11 @@ function applyLeftEvent(payload) {
 }
 
 function queueMove(direction) {
-  if (!myId || !socket.connected) {
+  if (!myId || !socket.connected || roomPhase === 'ended') {
     return;
   }
+
+  if (roomPhase === 'ended') return;
 
   const me = playersById.get(myId);
   if (!me) {
@@ -366,9 +402,53 @@ function getFrameLerp(baseLerp, deltaMs) {
   return 1 - Math.pow(1 - baseLerp, frameScale);
 }
 
+function drawCollectibles() {
+  for (const c of collectibles) {
+    const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 200);
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = c.color;
+    const cx = c.x * CELL_SIZE + CELL_SIZE / 2;
+    const cy = c.y * CELL_SIZE + CELL_SIZE / 2;
+    const size = CELL_SIZE / 2 - 2;
+    ctx.beginPath();
+    if (c.type === 'COIN') {
+      ctx.arc(cx, cy, size, 0, Math.PI * 2);
+    } else if (c.type === 'GEM') {
+      ctx.moveTo(cx, cy - size);
+      ctx.lineTo(cx + size, cy);
+      ctx.lineTo(cx, cy + size);
+      ctx.lineTo(cx - size, cy);
+      ctx.closePath();
+    } else if (c.type === 'STAR') {
+      for (let i = 0; i < 5; i++) {
+        const angle = (i * 4 * Math.PI) / 5 - Math.PI / 2;
+        const x = cx + Math.cos(angle) * size;
+        const y = cy + Math.sin(angle) * size;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+    }
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1.0;
+}
+
 function drawPlayersFrame(deltaMs) {
   for (const player of playersById.values()) {
-    const baseLerp = player.id === myId ? LOCAL_LERP : REMOTE_LERP;
+    // Hiệu ứng bóng ma/vết đuôi (Trail) đơn giản bằng cách vẽ lặp lại vị trí cũ với alpha thấp
+    ctx.fillStyle = player.color;
+    ctx.globalAlpha = 0.3;
+    ctx.fillRect(
+      player.renderX * CELL_SIZE + 1,
+      player.renderY * CELL_SIZE + 1,
+      CELL_SIZE - 2,
+      CELL_SIZE - 2
+    );
+    ctx.globalAlpha = 1.0;
+
+    const isMe = player.id === myId;
+    const baseLerp = isMe ? LOCAL_LERP : REMOTE_LERP;
     const lerp = getFrameLerp(baseLerp, deltaMs);
     player.renderX += (player.targetX - player.renderX) * lerp;
     player.renderY += (player.targetY - player.renderY) * lerp;
@@ -414,9 +494,16 @@ function renderFrame() {
 
   ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
   ctx.drawImage(gridLayer, 0, 0);
+  drawCollectibles();
   drawPlayersFrame(deltaMs);
-  updateStatusText();
-  renderRoomTimer();
+
+  if (now - lastUiUpdateAt > 100) {
+    // Cập nhật UI mỗi 100ms thay vì mỗi frame
+    updateStatusText();
+    renderRoomTimer();
+    lastUiUpdateAt = now;
+  }
+
   window.requestAnimationFrame(renderFrame);
 }
 
@@ -469,24 +556,27 @@ function scheduleMoveRepeat(delayMs) {
   }
 
   nextMoveRepeatAt = window.performance.now() + delayMs;
-  moveRepeatTimer = window.setTimeout(function runMoveRepeat() {
-    moveRepeatTimer = null;
+  moveRepeatTimer = window.setTimeout(
+    function runMoveRepeat() {
+      moveRepeatTimer = null;
 
-    const direction = getHeldDirection();
-    if (!direction || document.hidden) {
-      stopMoveRepeatLoop();
-      return;
-    }
+      const direction = getHeldDirection();
+      if (!direction || document.hidden) {
+        stopMoveRepeatLoop();
+        return;
+      }
 
-    const now = window.performance.now();
-    if (now < nextMoveRepeatAt) {
-      scheduleMoveRepeat(nextMoveRepeatAt - now);
-      return;
-    }
+      const now = window.performance.now();
+      if (now < nextMoveRepeatAt) {
+        scheduleMoveRepeat(nextMoveRepeatAt - now);
+        return;
+      }
 
-    queueMove(direction);
-    scheduleMoveRepeat(MOVE_REPEAT_MS);
-  }, Math.max(0, delayMs));
+      queueMove(direction);
+      scheduleMoveRepeat(MOVE_REPEAT_MS);
+    },
+    Math.max(0, delayMs)
+  );
 }
 
 function clearHeldDirections() {
@@ -584,6 +674,15 @@ socket.on('updatePlayers', applySnapshot);
 socket.on('playerMoved', applyMoveEvent);
 socket.on('playerJoined', applyJoinEvent);
 socket.on('playerLeft', applyLeftEvent);
+socket.on('updateCollectibles', (data) => {
+  if (Array.isArray(data)) {
+    collectibles = data;
+  }
+});
+socket.on('collectiblePickedUp', (data) => {
+  if (!data || !data.points) return;
+  statusEl.textContent = `+${data.points} diem!`;
+});
 socket.on('connect_error', (error) => {
   if (String(error?.message || '').toLowerCase() === 'unauthorized') {
     handleSessionConflict('Phiên đăng nhập không hợp lệ.', {
@@ -637,7 +736,7 @@ function updateRoomUI() {
   }
 
   if (roomPhase === 'ended') {
-    roomStatusEl.textContent = 'Phong da ket thuc';
+    roomStatusEl.textContent = 'Phòng đã kết thúc';
     btnCreateRoom.hidden = true;
     btnJoinRoom.hidden = true;
     btnStartGame.hidden = true;
@@ -703,31 +802,11 @@ function renderLeaderboard() {
   }
 }
 
-async function fetchJson(path, options = {}) {
-  const payload =
-    typeof options.body === 'string' && options.body
-      ? JSON.parse(options.body)
-      : options.body;
-  const result = await callApi(path, {
-    method: options.method,
-    headers: options.headers,
-    payload,
-  });
-  return {
-    ok: result.ok,
-    status: result.status,
-    async json() {
-      return result.data;
-    },
-  };
-}
-
 function createRoom() {
-  fetchJson('/api/rooms', { method: 'POST' })
-    .then((res) => res.json())
-    .then((data) => {
-      if (data.ok && data.room) {
-        currentRoomId = data.room.id;
+  callApi('/api/rooms', { method: 'POST' })
+    .then((result) => {
+      if (result.ok && result.data?.room) {
+        currentRoomId = result.data.room.id;
         isRoomHost = true;
         roomPhase = 'waiting';
         currentLeaderboard = [];
@@ -735,7 +814,7 @@ function createRoom() {
         socket.emit('joinRoom', { roomId: currentRoomId });
         updateRoomUI();
       } else {
-        roomStatusEl.textContent = 'Không thể tạo phòng: ' + (data.message || 'lỗi');
+        roomStatusEl.textContent = 'Không thể tạo phòng: ' + (result.data?.message || 'lỗi');
       }
     })
     .catch(() => {
