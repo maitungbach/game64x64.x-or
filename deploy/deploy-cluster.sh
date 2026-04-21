@@ -180,9 +180,11 @@ EOF
 # 4. Nginx config for LB
 cat > nginx.conf << EOF
 upstream game64x64_backend {
-    server 172.16.10.253:5001 max_fails=3 fail_timeout=30s;
-    server 172.16.10.216:5001 max_fails=3 fail_timeout=30s;
+    zone game64x64_backend 64k;
+    server 172.16.10.253:5001 max_fails=1 fail_timeout=10s;
+    server 172.16.10.216:5001 max_fails=1 fail_timeout=10s;
     least_conn;
+    keepalive 64;
 }
 
 server {
@@ -227,16 +229,25 @@ server {
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
         proxy_buffering off;
+        proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+        proxy_next_upstream_timeout 5s;
     }
 
     location /health {
         access_log off;
         proxy_pass http://game64x64_backend;
+        proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+        proxy_next_upstream_timeout 3s;
     }
 
     location /api/ {
         proxy_pass http://game64x64_backend;
         add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+        proxy_next_upstream_timeout 5s;
     }
 }
 EOF
