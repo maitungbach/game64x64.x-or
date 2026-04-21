@@ -57,16 +57,8 @@ let nextMoveRepeatAt = 0;
 let lastFrameAt = 0;
 let lastUiUpdateAt = 0;
 
-// Định nghĩa một số vật cản (Walls) để bản đồ bớt trống trải
-const OBSTACLES = [
-  { x: 10, y: 10, w: 5, h: 1 },
-  { x: 50, y: 10, w: 1, h: 5 },
-  { x: 32, y: 32, w: 4, h: 4 }, // Khối vuông ở giữa
-  { x: 10, y: 50, w: 10, h: 1 },
-  { x: 50, y: 50, w: 2, h: 10 },
-];
-
 let collectibles = [];
+let pendingCollectiblePickups = new Set();
 
 const gridLayer = document.createElement('canvas');
 gridLayer.width = CANVAS_SIZE;
@@ -85,6 +77,7 @@ function redirectToAuth() {
 function resetRuntimeState() {
   playersById.clear();
   pendingInputs = [];
+  pendingCollectiblePickups.clear();
   myServerPos = null;
   myId = null;
   heldDirections.clear();
@@ -175,22 +168,6 @@ function drawGridLayer() {
     gridCtx.stroke();
   }
 
-  // Vẽ vật cản lên lớp Grid cố định
-  gridCtx.fillStyle = '#9ca3af'; // Màu xám cho tường
-  for (const wall of OBSTACLES) {
-    gridCtx.fillRect(
-      wall.x * CELL_SIZE,
-      wall.y * CELL_SIZE,
-      wall.w * CELL_SIZE,
-      wall.h * CELL_SIZE
-    );
-  }
-}
-
-function isWall(x, y) {
-  return OBSTACLES.some(
-    (wall) => x >= wall.x && x < wall.x + wall.w && y >= wall.y && y < wall.y + wall.h
-  );
 }
 
 function getNextPosition(position, direction) {
@@ -205,11 +182,6 @@ function getNextPosition(position, direction) {
     nextX = clamp(position.x - 1, 0, GRID_SIZE - 1);
   } else if (direction === 'right') {
     nextX = clamp(position.x + 1, 0, GRID_SIZE - 1);
-  }
-
-  // Nếu chạm tường thì không cho đi tiếp
-  if (isWall(nextX, nextY)) {
-    return position;
   }
 
   return { x: nextX, y: nextY };
@@ -467,8 +439,20 @@ function drawPlayersFrame(deltaMs) {
       ctx.strokeStyle = '#111827';
       ctx.lineWidth = 1;
       ctx.strokeRect(player.renderX * CELL_SIZE, player.renderY * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+      
+      requestCollectiblePickupAt(player.targetX, player.targetY);
     }
   }
+}
+
+function requestCollectiblePickupAt(x, y) {
+  const collected = collectibles.find((item) => item.x === x && item.y === y);
+  if (!collected || pendingCollectiblePickups.has(collected.id)) {
+    return;
+  }
+
+  pendingCollectiblePickups.add(collected.id);
+  socket.emit('pickupCollectible', { collectibleId: collected.id });
 }
 
 function updateStatusText() {
@@ -648,6 +632,7 @@ socket.on('connect', () => {
 socket.on('disconnect', () => {
   clearHeldDirections();
   pendingInputs = [];
+  pendingCollectiblePickups.clear();
   myServerPos = null;
 });
 
@@ -677,12 +662,22 @@ socket.on('playerLeft', applyLeftEvent);
 socket.on('updateCollectibles', (data) => {
   if (Array.isArray(data)) {
     collectibles = data;
+    const currentIds = new Set(collectibles.map((item) => item.id));
+    pendingCollectiblePickups = new Set(
+      Array.from(pendingCollectiblePickups).filter((id) => currentIds.has(id))
+    );
   }
 });
 socket.on('collectiblePickedUp', (data) => {
   if (!data || !data.points) return;
   statusEl.textContent = `+${data.points} diem!`;
+
+  if (data.collectibleId) {
+    pendingCollectiblePickups.delete(data.collectibleId);
+    collectibles = collectibles.filter((item) => item.id !== data.collectibleId);
+  }
 });
+
 socket.on('connect_error', (error) => {
   if (String(error?.message || '').toLowerCase() === 'unauthorized') {
     handleSessionConflict('Phiên đăng nhập không hợp lệ.', {

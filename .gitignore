@@ -4,4 +4,7 @@ logs/
 npm-debug.log*
 .env
 tmp-*.log
+err*.log
+out*.log
+server.log
 users.json
