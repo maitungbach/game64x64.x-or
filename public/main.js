@@ -56,15 +56,20 @@ let moveRepeatTimer = null;
 let nextMoveRepeatAt = 0;
 let lastFrameAt = 0;
 let lastUiUpdateAt = 0;
+let authRecoveryInFlight = false;
 
 let collectibles = [];
-let pendingCollectiblePickups = new Set();
 
 const gridLayer = document.createElement('canvas');
 gridLayer.width = CANVAS_SIZE;
 gridLayer.height = CANVAS_SIZE;
 const gridCtx = gridLayer.getContext('2d');
 gridCtx.imageSmoothingEnabled = false;
+
+function syncSocketAuth() {
+  const authToken = String(readSession()?.authToken || '').trim();
+  socket.auth = authToken ? { token: authToken } : {};
+}
 
 function redirectToAuth() {
   if (redirectingToAuth) {
@@ -77,7 +82,6 @@ function redirectToAuth() {
 function resetRuntimeState() {
   playersById.clear();
   pendingInputs = [];
-  pendingCollectiblePickups.clear();
   myServerPos = null;
   myId = null;
   heldDirections.clear();
@@ -98,6 +102,7 @@ function handleSessionConflict(message, options = {}) {
     socket.disconnect();
   }
   clearClientSession({ releaseLock: shouldReleaseLock });
+  syncSocketAuth();
   if (shouldLogoutServer) {
     logoutFromServer();
   }
@@ -105,6 +110,45 @@ function handleSessionConflict(message, options = {}) {
   statusEl.textContent = message || 'Phiên đăng nhập không hợp lệ. Đang chuyển hướng...';
   renderAccountBar();
   window.setTimeout(redirectToAuth, 150);
+}
+
+async function recoverAuthSessionAfterSocketError() {
+  if (authRecoveryInFlight || redirectingToAuth) {
+    return;
+  }
+
+  authRecoveryInFlight = true;
+  statusEl.textContent = 'Ket noi dang duoc xac thuc lai...';
+
+  try {
+    const me = await fetchAuthMe();
+    if (!me) {
+      handleSessionConflict('Phiên đăng nhập không còn hợp lệ.', {
+        logoutServer: false,
+      });
+      return;
+    }
+
+    setClientSession({ ...me, authToken: me.authToken || null });
+    renderAccountBar();
+    syncSocketAuth();
+
+    if (!socket.connected && !socket.active) {
+      socket.connect();
+    }
+  } catch (_error) {
+    statusEl.textContent = 'Khong the xac thuc lai phien dang nhap. Dang thu ket noi lai...';
+    window.setTimeout(() => {
+      authRecoveryInFlight = false;
+      if (!socket.connected && !socket.active && !redirectingToAuth) {
+        syncSocketAuth();
+        socket.connect();
+      }
+    }, AUTH_RETRY_DELAY_MS);
+    return;
+  }
+
+  authRecoveryInFlight = false;
 }
 
 function renderAccountBar() {
@@ -126,8 +170,9 @@ function renderAccountBar() {
   authActionEl.href = '#';
   authActionEl.onclick = async (event) => {
     event.preventDefault();
-    clearClientSession();
     await logoutFromServer();
+    clearClientSession();
+    syncSocketAuth();
     if (socket.connected) {
       socket.disconnect();
     }
@@ -375,8 +420,8 @@ function getFrameLerp(baseLerp, deltaMs) {
 }
 
 function drawCollectibles() {
+  const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 200);
   for (const c of collectibles) {
-    const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 200);
     ctx.globalAlpha = pulse;
     ctx.fillStyle = c.color;
     const cx = c.x * CELL_SIZE + CELL_SIZE / 2;
@@ -399,6 +444,14 @@ function drawCollectibles() {
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
+      ctx.closePath();
+    } else if (c.type === 'DIAMOND') {
+      // Larger diamond shape for legendary item
+      const dsize = size * 1.2;
+      ctx.moveTo(cx, cy - dsize);
+      ctx.lineTo(cx + dsize, cy);
+      ctx.lineTo(cx, cy + dsize);
+      ctx.lineTo(cx - dsize, cy);
       ctx.closePath();
     }
     ctx.fill();
@@ -439,20 +492,8 @@ function drawPlayersFrame(deltaMs) {
       ctx.strokeStyle = '#111827';
       ctx.lineWidth = 1;
       ctx.strokeRect(player.renderX * CELL_SIZE, player.renderY * CELL_SIZE, CELL_SIZE, CELL_SIZE);
-      
-      requestCollectiblePickupAt(player.targetX, player.targetY);
     }
   }
-}
-
-function requestCollectiblePickupAt(x, y) {
-  const collected = collectibles.find((item) => item.x === x && item.y === y);
-  if (!collected || pendingCollectiblePickups.has(collected.id)) {
-    return;
-  }
-
-  pendingCollectiblePickups.add(collected.id);
-  socket.emit('pickupCollectible', { collectibleId: collected.id });
 }
 
 function updateStatusText() {
@@ -629,10 +670,13 @@ socket.on('connect', () => {
   myServerPos = null;
 });
 
+socket.io.on('reconnect_attempt', () => {
+  syncSocketAuth();
+});
+
 socket.on('disconnect', () => {
   clearHeldDirections();
   pendingInputs = [];
-  pendingCollectiblePickups.clear();
   myServerPos = null;
 });
 
@@ -662,18 +706,16 @@ socket.on('playerLeft', applyLeftEvent);
 socket.on('updateCollectibles', (data) => {
   if (Array.isArray(data)) {
     collectibles = data;
-    const currentIds = new Set(collectibles.map((item) => item.id));
-    pendingCollectiblePickups = new Set(
-      Array.from(pendingCollectiblePickups).filter((id) => currentIds.has(id))
-    );
   }
 });
 socket.on('collectiblePickedUp', (data) => {
   if (!data || !data.points) return;
-  statusEl.textContent = `+${data.points} diem!`;
+  const currentUserId = readSession()?.id || null;
+  if (currentUserId && data.playerId === currentUserId) {
+    statusEl.textContent = `Ban vua nhat +${data.points} diem!`;
+  }
 
   if (data.collectibleId) {
-    pendingCollectiblePickups.delete(data.collectibleId);
     collectibles = collectibles.filter((item) => item.id !== data.collectibleId);
   }
 });
@@ -686,6 +728,21 @@ socket.on('connect_error', (error) => {
     return;
   }
   statusEl.textContent = 'Kết nối tạm thời gián đoạn. Hệ thống đang tự kết nối lại...';
+});
+
+socket.off('connect_error');
+socket.on('connect_error', (error) => {
+  if (String(error?.message || '').toLowerCase() === 'unauthorized') {
+    recoverAuthSessionAfterSocketError();
+    return;
+  }
+  statusEl.textContent = 'Ket noi tam thoi bi gian doan. He thong dang tu ket noi lai...';
+});
+
+socket.on('disconnect', (reason) => {
+  if (reason === 'io server disconnect' && readSession() && !redirectingToAuth) {
+    recoverAuthSessionAfterSocketError();
+  }
 });
 
 const roomStatusEl = document.getElementById('roomStatus');
@@ -703,6 +760,7 @@ function resetRoomState() {
   isRoomHost = false;
   roomGameEndsAt = null;
   currentLeaderboard = [];
+  collectibles = [];
   roomPhase = 'idle';
   renderLeaderboard();
 }
@@ -795,6 +853,26 @@ function renderLeaderboard() {
     }
     leaderboardListEl.appendChild(li);
   }
+}
+
+function getRoomEndMessage(data) {
+  const winnerIds = Array.isArray(data?.winnerIds) ? data.winnerIds : [];
+  const winningScore = Number.isFinite(Number(data?.winningScore)) ? Number(data.winningScore) : 0;
+  const currentUserId = readSession()?.id || null;
+
+  if (winnerIds.length === 0) {
+    return 'Het gio. Chua ai nhat duoc o diem thuong.';
+  }
+  if (currentUserId && winnerIds.includes(currentUserId)) {
+    if (winnerIds.length > 1) {
+      return `Het gio. Ban dong thang voi ${winningScore} diem.`;
+    }
+    return `Het gio. Ban chien thang voi ${winningScore} diem.`;
+  }
+  if (winnerIds.length > 1) {
+    return `Het gio. Co ${winnerIds.length} nguoi dong thang voi ${winningScore} diem.`;
+  }
+  return `Het gio. Da co nguoi chien thang voi ${winningScore} diem.`;
 }
 
 function createRoom() {
@@ -895,6 +973,7 @@ socket.on('roomEnded', (data) => {
   currentLeaderboard = data.leaderboard || [];
   renderLeaderboard();
   updateRoomUI();
+  roomStatusEl.textContent = getRoomEndMessage(data);
 });
 
 socket.on('roomLeft', (_data) => {
@@ -925,8 +1004,12 @@ async function bootstrapAuthAndConnect() {
       return;
     }
 
-    if (!initialSession || normalizeEmail(me.email) !== normalizeEmail(initialSession.email)) {
-      initialSession = setClientSession(me);
+    if (
+      !initialSession ||
+      normalizeEmail(me.email) !== normalizeEmail(initialSession.email) ||
+      String(me.authToken || '').trim() !== String(initialSession.authToken || '').trim()
+    ) {
+      initialSession = setClientSession({ ...me, authToken: me.authToken || null });
       renderAccountBar();
     }
 
@@ -944,6 +1027,7 @@ async function bootstrapAuthAndConnect() {
     return;
   }
 
+  syncSocketAuth();
   socket.connect();
 }
 

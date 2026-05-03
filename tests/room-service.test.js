@@ -52,6 +52,11 @@ async function run() {
   try {
     assert.strictEqual(typeof game.addRoomScore, 'function', 'addRoomScore should be exported');
     assert.strictEqual(typeof game.endRoomGame, 'function', 'endRoomGame should be exported');
+    assert.strictEqual(
+      typeof game.scheduleCollectibleSpawning,
+      'function',
+      'scheduleCollectibleSpawning should be exported'
+    );
 
     const room = game.createRoom('host-user', { gameDurationSec: 0.05 });
     assert.strictEqual(game.joinRoom(room.id, 'guest-user').ok, true, 'guest should join room');
@@ -59,8 +64,34 @@ async function run() {
     const started = game.startRoomGame(room.id);
     assert.strictEqual(started.ok, true, 'room should start once two players are present');
 
-    assert.strictEqual(game.addRoomScore(room.id, 'host-user', 2), 2, 'host score should update');
-    assert.strictEqual(game.addRoomScore(room.id, 'guest-user', 1), 1, 'guest score should update');
+    const spawned = await game.scheduleCollectibleSpawning(room.id);
+    assert.strictEqual(spawned, true, 'room should spawn collectibles after starting');
+
+    const collectibles = game.getCollectiblesForRoom(room.id);
+    assert(collectibles.length >= 1, 'playing room should expose collectible tiles');
+
+    const firstCollectible = collectibles[0];
+    const picked = game.checkCollectiblePickup(firstCollectible.x, firstCollectible.y, 'host-socket', room.id);
+    assert.deepStrictEqual(
+      picked && {
+        id: picked.id,
+        x: picked.x,
+        y: picked.y,
+        points: picked.points,
+      },
+      {
+        id: firstCollectible.id,
+        x: firstCollectible.x,
+        y: firstCollectible.y,
+        points: firstCollectible.points,
+      },
+      'pickup should return the collectible that was on the cell'
+    );
+    assert.strictEqual(
+      game.addRoomScore(room.id, 'host-user', picked.points),
+      picked.points,
+      'host score should update from collected tile'
+    );
 
     await delay(120);
 
@@ -69,19 +100,26 @@ async function run() {
     );
     assert(roomEndedEvent, 'roomEnded event should be emitted after timer expires');
     assert.deepStrictEqual(roomEndedEvent.payload.leaderboard, [
-      { rank: 1, playerId: 'host-user', score: 2 },
-      { rank: 2, playerId: 'guest-user', score: 1 },
+      { rank: 1, playerId: 'host-user', score: picked.points },
+      { rank: 2, playerId: 'guest-user', score: 0 },
     ]);
+    assert.strictEqual(roomEndedEvent.payload.winningScore, picked.points, 'winning score should be exposed');
+    assert.deepStrictEqual(
+      roomEndedEvent.payload.winnerIds,
+      ['host-user'],
+      'winnerIds should identify the winning player'
+    );
 
     const endedRoom = game.getRoomById(room.id);
     assert(endedRoom, 'room should still exist after ending');
     assert.strictEqual(endedRoom.status, 'ended', 'room status should be ended');
+    assert.deepStrictEqual(game.getCollectiblesForRoom(room.id), [], 'collectibles should clear when room ends');
 
     const leaveResult = game.leaveRoom(room.id, 'host-user');
     assert.strictEqual(leaveResult.closed, true, 'host leaving should close the room');
     assert.strictEqual(game.getRoomById(room.id), null, 'closed room should be removed');
 
-    console.log('PASS room service: scoring + timed room end + host close');
+    console.log('PASS room service: collectibles + timed room end + winner');
   } finally {
     game.shutdown();
   }

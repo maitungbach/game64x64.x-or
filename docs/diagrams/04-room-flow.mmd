@@ -1,0 +1,18 @@
+flowchart TD
+    A[Create room / Join room] --> B[Room Waiting]
+    B --> C[Host clicks Start]
+    C --> D[Room Playing]
+    D --> E[Players move]
+    E --> F[Realtime scoring]
+    F --> G[Leaderboard update]
+    G --> H[Time ends]
+    H --> I[roomEnded]
+    I --> J[Show ranking]
+
+    classDef phase fill:#EFF6FF,stroke:#2563EB,stroke-width:2,color:#111;
+    classDef game fill:#ECFDF5,stroke:#059669,stroke-width:2,color:#111;
+    classDef score fill:#FFF7ED,stroke:#EA580C,stroke-width:2,color:#111;
+
+    class A,B,C,D,H,I,J phase;
+    class E game;
+    class F,G score;

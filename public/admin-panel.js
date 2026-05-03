@@ -419,8 +419,8 @@ async function handleRevokeSessions() {
   );
 
   if (result.data?.revokedSelf) {
-    clearClientSession();
     await logoutFromServer();
+    clearClientSession();
     redirectToLogin();
     return;
   }
@@ -460,8 +460,8 @@ async function verifyStatsToken() {
 }
 
 async function handleLogout() {
-  clearClientSession();
   await logoutFromServer();
+  clearClientSession();
   redirectToLogin();
 }
 
@@ -473,8 +473,12 @@ async function bootstrap() {
     redirectToLogin();
     return;
   }
-  if (!currentSession || normalizeEmail(currentSession.email) !== normalizeEmail(me.email)) {
-    setClientSession(me);
+  if (
+    !currentSession ||
+    normalizeEmail(currentSession.email) !== normalizeEmail(me.email) ||
+    String(me.authToken || '').trim() !== String(currentSession.authToken || '').trim()
+  ) {
+    setClientSession({ ...me, authToken: me.authToken || null });
   }
   if (!me.isAdmin) {
     clearClientSession();

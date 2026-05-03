@@ -109,6 +109,21 @@ function createAuthService(options) {
     return parsed;
   }
 
+  function extractBearerToken(value) {
+    const raw = String(value || '').trim();
+    if (!raw) {
+      return null;
+    }
+
+    const match = /^Bearer\s+(.+)$/i.exec(raw);
+    if (!match) {
+      return null;
+    }
+
+    const token = String(match[1] || '').trim();
+    return token || null;
+  }
+
   function normalizeIp(value) {
     const raw = String(value || '').trim();
     if (!raw) {
@@ -191,11 +206,36 @@ function createAuthService(options) {
   }
 
   function getAuthTokenFromRequest(req) {
+    const explicitHeader = readHeader(req, 'x-game64x64-auth').trim();
+    if (explicitHeader) {
+      return explicitHeader;
+    }
+
+    const bearerToken = extractBearerToken(readHeader(req, 'authorization'));
+    if (bearerToken) {
+      return bearerToken;
+    }
+
     const cookies = parseCookies(req?.headers?.cookie);
     return cookies[config.AUTH_COOKIE_NAME] || null;
   }
 
   function getAuthTokenFromSocket(socket) {
+    const authToken = String(socket?.handshake?.auth?.token || '').trim();
+    if (authToken) {
+      return authToken;
+    }
+
+    const explicitHeader = readHeader(socket?.handshake, 'x-game64x64-auth').trim();
+    if (explicitHeader) {
+      return explicitHeader;
+    }
+
+    const bearerToken = extractBearerToken(readHeader(socket?.handshake, 'authorization'));
+    if (bearerToken) {
+      return bearerToken;
+    }
+
     const cookieHeader = socket?.handshake?.headers?.cookie;
     const cookies = parseCookies(cookieHeader);
     return cookies[config.AUTH_COOKIE_NAME] || null;
@@ -974,17 +1014,38 @@ function createAuthService(options) {
     return { token, session: refreshed, user };
   }
 
-  async function getAuthenticatedUserFromRequest(req) {
-    if (req && Object.prototype.hasOwnProperty.call(req, REQUEST_AUTH_CONTEXT_KEY)) {
-      return req[REQUEST_AUTH_CONTEXT_KEY];
-    }
+   async function getAuthenticatedUserFromRequest(req) {
+     if (!config.AUTH_REQUIRED) {
+       const bypassUser = {
+         id: 'test-user-bypass',
+         email: 'test@bypass.local',
+         name: 'Test User',
+         createdAt: new Date().toISOString(),
+         role: 'user',
+       };
+       const bypassToken = 'bypass-token';
+       const bypassSession = {
+         token: bypassToken,
+         userId: bypassUser.id,
+         email: bypassUser.email,
+         name: bypassUser.name,
+         createdAt: Date.now(),
+         lastSeenAt: Date.now(),
+         expiresAt: Date.now() + config.AUTH_SESSION_TTL_SEC * 1000,
+       };
+       return { token: bypassToken, session: bypassSession, user: bypassUser };
+     }
 
-    const authContext = await getAuthenticatedUserByToken(getAuthTokenFromRequest(req));
-    if (req) {
-      req[REQUEST_AUTH_CONTEXT_KEY] = authContext;
-    }
-    return authContext;
-  }
+     if (req && Object.prototype.hasOwnProperty.call(req, REQUEST_AUTH_CONTEXT_KEY)) {
+       return req[REQUEST_AUTH_CONTEXT_KEY];
+     }
+
+     const authContext = await getAuthenticatedUserByToken(getAuthTokenFromRequest(req));
+     if (req) {
+       req[REQUEST_AUTH_CONTEXT_KEY] = authContext;
+     }
+     return authContext;
+   }
 
   return {
     TEST_USERS_SEED_EMAILS,

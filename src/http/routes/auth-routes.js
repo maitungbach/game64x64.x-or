@@ -3,6 +3,9 @@ function registerAuthRoutes(deps) {
   const { app, asyncRoute, config, auth } = deps;
 
   function requireTrustedMutation(req, res) {
+    if (!config.AUTH_REQUIRED) {
+      return true;
+    }
     if (auth.isTrustedCsrfRequest(req)) {
       return true;
     }
@@ -102,7 +105,11 @@ function registerAuthRoutes(deps) {
       console.log(
         `[auth-register] success ip=${clientIp} email=${email} userId=${createdUser.user.id} authStorage=${auth.getAuthStorageMode()}`
       );
-      res.status(201).json({ ok: true, user: auth.toPublicUser(createdUser.user) });
+      res.status(201).json({
+        ok: true,
+        user: auth.toPublicUser(createdUser.user),
+        authToken: created.session.token,
+      });
     })
   );
 
@@ -164,7 +171,11 @@ function registerAuthRoutes(deps) {
       }
 
       auth.setAuthCookie(res, created.session.token);
-      res.json({ ok: true, user: auth.toPublicUser(user) });
+      res.json({
+        ok: true,
+        user: auth.toPublicUser(user),
+        authToken: created.session.token,
+      });
     })
   );
 
@@ -198,6 +209,7 @@ function registerAuthRoutes(deps) {
       res.json({
         ok: true,
         user: auth.toPublicUser(authContext.user),
+        authToken: authContext.token,
       });
     })
   );

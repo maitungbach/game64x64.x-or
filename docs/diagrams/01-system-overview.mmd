@@ -1,0 +1,20 @@
+flowchart LR
+    U[Users<br/>Web / Mobile / PC] --> LB[Load Balancer<br/>Nginx]
+    LB --> A1[App Node 1<br/>Express + Socket.IO]
+    LB --> A2[App Node 2<br/>Express + Socket.IO]
+
+    A1 --> R[(Redis)]
+    A2 --> R[(Redis)]
+
+    A1 --> M[(MongoDB)]
+    A2 --> M[(MongoDB)]
+
+    classDef edge fill:#E8F1FF,stroke:#3B82F6,stroke-width:2,color:#111;
+    classDef app fill:#ECFDF5,stroke:#10B981,stroke-width:2,color:#111;
+    classDef store fill:#FFF7ED,stroke:#F97316,stroke-width:2,color:#111;
+    classDef user fill:#F5F3FF,stroke:#8B5CF6,stroke-width:2,color:#111;
+
+    class U user;
+    class LB edge;
+    class A1,A2 app;
+    class R,M store;

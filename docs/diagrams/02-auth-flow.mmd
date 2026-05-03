@@ -1,0 +1,17 @@
+flowchart LR
+    A[User enters<br/>Email / Password] --> B[auth.html / auth.js]
+    B --> C[POST /api/auth/login<br/>or /register]
+    C --> D[auth-service]
+    D --> E[(MongoDB Users)]
+    D --> F[(MongoDB Sessions)]
+    D --> G[(Redis Rate Limit / Session Map)]
+    D --> H[Set-Cookie<br/>HttpOnly Session]
+    H --> I[Allow access to<br/>Game / Admin]
+
+    classDef ui fill:#EEF2FF,stroke:#4F46E5,stroke-width:2,color:#111;
+    classDef svc fill:#ECFDF5,stroke:#10B981,stroke-width:2,color:#111;
+    classDef db fill:#FFF7ED,stroke:#F97316,stroke-width:2,color:#111;
+
+    class A,B,C,H,I ui;
+    class D svc;
+    class E,F,G db;

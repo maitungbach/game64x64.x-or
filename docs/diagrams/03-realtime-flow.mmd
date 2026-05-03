@@ -1,0 +1,18 @@
+sequenceDiagram
+    participant U1 as Tab 1
+    participant S as Socket.IO Server
+    participant G as game-service
+    participant R as Redis
+    participant U2 as Tab 2 / Tab 3
+
+    U1->>S: connect
+    S->>G: create/connect player
+    G->>R: save player state
+    S-->>U1: updatePlayers
+
+    U1->>S: move(direction, seq)
+    S->>G: validate + rate limit
+    G->>R: update position
+    G-->>S: move applied
+    S-->>U1: moveAck
+    S-->>U2: playerMoved / updatePlayers

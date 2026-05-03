@@ -27,16 +27,18 @@ function registerSystemRoutes(deps) {
     return authContext;
   }
 
-  function requireTrustedMutation(req, res) {
-    if (auth.isTrustedCsrfRequest(req)) {
-      return true;
-    }
+   function requireTrustedMutation(req, res) {
+     if (!config.AUTH_REQUIRED) {
+       return true;
+     }
+     if (auth.isTrustedCsrfRequest(req)) {
+       return true;
+     }
+     res.status(403).json({ ok: false, message: 'Untrusted request origin' });
+     return false;
+   }
 
-    res.status(403).json({ ok: false, message: 'Untrusted request origin' });
-    return false;
-  }
-
-  function createHealthSnapshot(playersCount) {
+   function createHealthSnapshot(playersCount) {
     return {
       ok: true,
       version: config.APP_VERSION,
@@ -217,6 +219,35 @@ function registerSystemRoutes(deps) {
     });
   }
 
+  async function handleGetRoom(req, res) {
+    const roomId = String(req.params.roomId || '').toUpperCase();
+    if (!roomId) {
+      res.status(400).json({ ok: false, message: 'Missing roomId' });
+      return;
+    }
+
+    const room = game.getRoomById(roomId);
+    if (!room) {
+      res.status(404).json({ ok: false, message: 'Room not found' });
+      return;
+    }
+
+    const now = Date.now();
+    const timeRemainingSec = room.endsAt ? Math.max(0, Math.floor((room.endsAt - now) / 1000)) : null;
+    const collectibles = game.getCollectiblesForRoom(roomId);
+    const leaderboard = game.getRoomLeaderboard(roomId);
+
+    res.json({
+      ok: true,
+      room: {
+        ...toPublicRoom(room),
+        timeRemainingSec,
+        collectibles,
+        leaderboard,
+      },
+    });
+  }
+
   async function handleListRooms(_req, res) {
     res.json({ ok: true, rooms: game.listRooms() });
   }
@@ -298,6 +329,9 @@ function registerSystemRoutes(deps) {
     }
 
     const result = game.startRoomGame(roomId);
+    if (result?.ok) {
+      await game.scheduleCollectibleSpawning(roomId);
+    }
     sendRoomResult(res, result);
   }
 
@@ -319,12 +353,13 @@ function registerSystemRoutes(deps) {
   app.get('/api/stats', asyncRoute(handleStats));
   app.get('/api/admin/user-by-email', asyncRoute(handleAdminUserLookup));
   app.post('/api/admin/user/revoke-sessions', asyncRoute(handleAdminUserSessionRevoke));
-  app.get('/api/rooms', asyncRoute(handleListRooms));
-  app.post('/api/rooms', asyncRoute(handleCreateRoom));
-  app.post('/api/rooms/:roomId/join', asyncRoute(handleJoinRoom));
-  app.post('/api/rooms/:roomId/leave', asyncRoute(handleLeaveRoom));
-  app.post('/api/rooms/:roomId/start', asyncRoute(handleStartRoom));
-  app.get('/api/rooms/:roomId/leaderboard', asyncRoute(handleRoomLeaderboard));
+   app.get('/api/rooms', asyncRoute(handleListRooms));
+   app.get('/api/rooms/:roomId', asyncRoute(handleGetRoom));
+   app.post('/api/rooms', asyncRoute(handleCreateRoom));
+   app.post('/api/rooms/:roomId/join', asyncRoute(handleJoinRoom));
+   app.post('/api/rooms/:roomId/leave', asyncRoute(handleLeaveRoom));
+   app.post('/api/rooms/:roomId/start', asyncRoute(handleStartRoom));
+   app.get('/api/rooms/:roomId/leaderboard', asyncRoute(handleRoomLeaderboard));
 }
 
 module.exports = {

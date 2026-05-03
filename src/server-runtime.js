@@ -27,14 +27,34 @@ function createServerRuntime(options = {}) {
   const packageJson = options.packageJson || require(path.join(rootDir, 'package.json'));
   const config = createRuntimeConfig(packageJson);
 
-  const app = express();
-  app.set('trust proxy', config.TRUST_PROXY);
-  const server = http.createServer(app);
-  const io = new Server(server, {
-    transports: ['websocket'],
-    pingInterval: Number(process.env.SOCKET_PING_INTERVAL_MS || 10000),
-    pingTimeout: Number(process.env.SOCKET_PING_TIMEOUT_MS || 5000),
-  });
+   const app = express();
+   app.set('trust proxy', config.TRUST_PROXY);
+
+   // CORS cho AUTH_REQUIRED=false
+   if (!config.AUTH_REQUIRED) {
+     app.use((req, res, next) => {
+       res.setHeader('Access-Control-Allow-Origin', '*');
+       res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-Game64x64-Auth, Authorization');
+       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+       res.setHeader('Access-Control-Allow-Credentials', 'true');
+       if (req.method === 'OPTIONS') {
+         res.status(204).end();
+         return;
+       }
+       next();
+     });
+   }
+
+   const server = http.createServer(app);
+   const io = new Server(server, {
+     cors: {
+       origin: true,
+       credentials: true,
+     },
+     transports: ['polling', 'websocket'],
+     pingInterval: Number(process.env.SOCKET_PING_INTERVAL_MS || 10000),
+     pingTimeout: Number(process.env.SOCKET_PING_TIMEOUT_MS || 5000),
+   });
 
   let redisPubClient = null;
   let redisSubClient = null;
@@ -78,6 +98,28 @@ function createServerRuntime(options = {}) {
   });
 
   async function getAdminAuthContextFromRequest(req) {
+    if (!config.AUTH_REQUIRED) {
+      return {
+        token: 'bypass-admin-token',
+        session: {
+          token: 'bypass-admin-token',
+          userId: 'admin-bypass',
+          email: 'admin@bypass.local',
+          name: 'Admin',
+          createdAt: Date.now(),
+          lastSeenAt: Date.now(),
+          expiresAt: Date.now() + config.AUTH_SESSION_TTL_SEC * 1000,
+        },
+        user: {
+          id: 'admin-bypass',
+          email: 'admin@bypass.local',
+          name: 'Admin',
+          role: 'admin',
+          createdAt: new Date().toISOString(),
+        },
+      };
+    }
+
     const authContext = await auth.getAuthenticatedUserFromRequest(req);
     if (!authContext || !auth.isAdminUser(authContext.user)) {
       return null;
@@ -86,6 +128,9 @@ function createServerRuntime(options = {}) {
   }
 
   async function isStatsAuthorized(req) {
+    if (!config.AUTH_REQUIRED) {
+      return true;
+    }
     if (!config.STATS_TOKEN) {
       return Boolean(await getAdminAuthContextFromRequest(req));
     }

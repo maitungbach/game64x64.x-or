@@ -45,12 +45,14 @@
   const TAB_ID = getTabId();
 
   function buildSession(user) {
+    const authToken = String(user?.authToken || user?.token || '').trim();
     return {
       id: String(user?.id || '').trim() || null,
       name: String(user?.name || user?.email || '').trim(),
       email: normalizeEmail(user?.email),
       tabId: TAB_ID,
       sessionToken: createTabId(),
+      authToken: authToken || null,
       loggedAt: new Date().toISOString(),
     };
   }
@@ -108,7 +110,16 @@
   }
 
   function setClientSession(user) {
-    const session = buildSession(user);
+    const current = readSession();
+    const nextUser =
+      current &&
+      normalizeEmail(current.email) === normalizeEmail(user?.email) &&
+      current.authToken &&
+      !user?.authToken &&
+      !user?.token
+        ? { ...user, authToken: current.authToken }
+        : user;
+    const session = buildSession(nextUser);
     writeSession(session);
     return session;
   }
@@ -127,6 +138,10 @@
     };
     if (payload !== undefined && !Object.prototype.hasOwnProperty.call(headers, 'Content-Type')) {
       headers['Content-Type'] = 'application/json';
+    }
+    const authToken = String(readSession()?.authToken || '').trim();
+    if (authToken && !Object.prototype.hasOwnProperty.call(headers, 'x-game64x64-auth')) {
+      headers['x-game64x64-auth'] = authToken;
     }
     if (
       method !== 'GET' &&
@@ -165,7 +180,13 @@
     if (!result.ok) {
       return null;
     }
-    return result.data?.user || null;
+    if (!result.data?.user) {
+      return null;
+    }
+    return {
+      ...result.data.user,
+      authToken: result.data.authToken || null,
+    };
   }
 
   async function logoutFromServer() {

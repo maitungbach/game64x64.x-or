@@ -19,7 +19,7 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function requestJson(method, route, body = null, cookie = '') {
+function requestJson(method, route, body = null, cookie = '', extraHeaders = null) {
   const payload = body ? JSON.stringify(body) : null;
   const headers = {
     Accept: 'application/json',
@@ -33,6 +33,9 @@ function requestJson(method, route, body = null, cookie = '') {
   }
   if (cookie) {
     headers.Cookie = cookie;
+  }
+  if (extraHeaders && typeof extraHeaders === 'object') {
+    Object.assign(headers, extraHeaders);
   }
 
   return new Promise((resolve, reject) => {
@@ -81,14 +84,21 @@ function extractCookie(setCookieHeaders) {
   return String(first).split(';')[0];
 }
 
-function connectAuthedSocket(cookie) {
+function extractAuthToken(body) {
+  return String(body?.authToken || '').trim();
+}
+
+function connectAuthedSocket(cookie = '', authToken = '') {
+  const extraHeaders = {};
+  if (cookie) {
+    extraHeaders.Cookie = cookie;
+  }
   return io(BASE_URL, {
     transports: ['websocket'],
     reconnection: false,
     timeout: 4000,
-    extraHeaders: {
-      Cookie: cookie,
-    },
+    auth: authToken ? { token: authToken } : undefined,
+    extraHeaders,
   });
 }
 
@@ -184,7 +194,9 @@ async function run() {
     });
     assert.strictEqual(registerRes.statusCode, 201, 'Register should return 201');
     const registerCookie = extractCookie(registerRes.setCookie);
+    const registerAuthToken = extractAuthToken(registerRes.body);
     assert(registerCookie.includes('game64x64_session='), 'Register should set auth cookie');
+    assert(registerAuthToken, 'Register should return auth token for tab-scoped auth');
 
     const meRes = await requestJson('GET', '/api/auth/me', null, registerCookie);
     assert.strictEqual(meRes.statusCode, 200, 'Expected /api/auth/me authorized');
@@ -220,7 +232,9 @@ async function run() {
     const loginRes = await requestJson('POST', '/api/auth/login', { email, password });
     assert.strictEqual(loginRes.statusCode, 200, 'Login should return 200');
     const loginCookie = extractCookie(loginRes.setCookie);
-    activeSocket = connectAuthedSocket(loginCookie);
+    const loginAuthToken = extractAuthToken(loginRes.body);
+    assert(loginAuthToken, 'Login should return auth token for tab-scoped auth');
+    activeSocket = connectAuthedSocket(loginCookie, loginAuthToken);
     await waitForSocketConnect(activeSocket);
 
     const duplicateLoginRes = await requestJson('POST', '/api/auth/login', { email, password });
@@ -259,12 +273,47 @@ async function run() {
       password: seedPassword,
     });
     assert.strictEqual(seedLogin1.statusCode, 200, 'Seed account first login should return 200');
+    assert(extractAuthToken(seedLogin1.body), 'Seed login should return auth token');
 
     const seedLogin2 = await requestJson('POST', '/api/auth/login', {
       email: seedEmail,
       password: seedPassword,
     });
     assert.strictEqual(seedLogin2.statusCode, 200, 'Seed account should allow concurrent login');
+    assert(extractAuthToken(seedLogin2.body), 'Concurrent seed login should return auth token');
+
+    const otherSeedLogin = await requestJson('POST', '/api/auth/login', {
+      email: 'tester02@example.com',
+      password: 'Test123!',
+    });
+    assert.strictEqual(otherSeedLogin.statusCode, 200, 'Second account login should succeed');
+    const seedToken1 = extractAuthToken(seedLogin1.body);
+    const seedToken2 = extractAuthToken(otherSeedLogin.body);
+
+    const meSeed1 = await requestJson('GET', '/api/auth/me', null, '', {
+      'x-game64x64-auth': seedToken1,
+    });
+    const meSeed2 = await requestJson('GET', '/api/auth/me', null, '', {
+      'x-game64x64-auth': seedToken2,
+    });
+    assert.strictEqual(meSeed1.statusCode, 200, 'First tab token should stay authorized');
+    assert.strictEqual(meSeed2.statusCode, 200, 'Second tab token should stay authorized');
+    assert.strictEqual(
+      meSeed1.body?.user?.email,
+      seedEmail,
+      'First tab token should resolve its own account'
+    );
+    assert.strictEqual(
+      meSeed2.body?.user?.email,
+      'tester02@example.com',
+      'Second tab token should resolve its own account'
+    );
+
+    const seedSocket1 = connectAuthedSocket('', seedToken1);
+    const seedSocket2 = connectAuthedSocket('', seedToken2);
+    await Promise.all([waitForSocketConnect(seedSocket1), waitForSocketConnect(seedSocket2)]);
+    seedSocket1.disconnect();
+    seedSocket2.disconnect();
 
     const wrongPassword1 = await requestJson('POST', '/api/auth/login', {
       email,

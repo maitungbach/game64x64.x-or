@@ -1,0 +1,22 @@
+flowchart LR
+    A[User Request] --> B[Nginx LB]
+    B --> C1[App Node 1]
+    B --> C2[App Node 2]
+
+    C1 <-- Sync State --> R[(Redis)]
+    C2 <-- Sync State --> R
+
+    C1 --> M[(MongoDB)]
+    C2 --> M
+
+    X[One node stops] --> B
+    B --> Y[Remaining node keeps serving]
+    Y --> Z[Stopped node comes back<br/>and resyncs]
+
+    classDef core fill:#ECFDF5,stroke:#10B981,stroke-width:2,color:#111;
+    classDef fail fill:#FEF2F2,stroke:#DC2626,stroke-width:2,color:#111;
+    classDef db fill:#FFF7ED,stroke:#F97316,stroke-width:2,color:#111;
+
+    class A,B,C1,C2,Y,Z core;
+    class X fail;
+    class R,M db;

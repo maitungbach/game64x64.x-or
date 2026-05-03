@@ -207,7 +207,7 @@ async function handleLogin(event) {
         }
         if (result.ok) {
           const user = result.data?.user || { email, name: email };
-          setClientSession(user);
+          setClientSession({ ...user, authToken: result.data?.authToken || null });
           setMessage('Đăng nhập thành công. Đang chuyển về trang game...', 'success');
           redirectToGame();
           return;
@@ -225,7 +225,7 @@ async function handleLogin(event) {
   }
 
   const user = result.data?.user || { email, name: email };
-  setClientSession(user);
+  setClientSession({ ...user, authToken: result.data?.authToken || null });
   setMessage('Đăng nhập thành công. Đang chuyển về trang game...', 'success');
   redirectToGame();
 }
@@ -280,7 +280,7 @@ async function handleRegister(event) {
   }
 
   const user = result.data?.user || { email, name };
-  setClientSession(user);
+  setClientSession({ ...user, authToken: result.data?.authToken || null });
   setMessage('Tạo tài khoản thành công. Đang chuyển về trang game...', 'success');
   redirectToGame();
 }
@@ -298,7 +298,10 @@ async function bootstrapExistingLogin() {
     return;
   }
 
-  setClientSession(result.data.user);
+  setClientSession({
+    ...result.data.user,
+    authToken: result.data?.authToken || null,
+  });
   setMessage("Bạn đã đăng nhập. Nhấn 'Vào game' để tiếp tục.", 'success');
 }
 

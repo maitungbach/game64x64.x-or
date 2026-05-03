@@ -2,6 +2,7 @@
 
 ## Release checklist
 Xem [RELEASE-CHECKLIST.md](/c:/workspace/game64x64.x-or/docs/RELEASE-CHECKLIST.md) truoc moi lan deploy hoac restart.
+Neu gap su co dang nhap, xem [LOGIN-DEBUG-PROD.md](/c:/workspace/game64x64.x-or/docs/LOGIN-DEBUG-PROD.md).
 
 ## Admin dashboard
 - URL: `/admin`
@@ -38,6 +39,7 @@ Trang `/admin` co o nhap token de gui kem header nay khi can.
 ```bash
 curl http://127.0.0.1:3000/health
 curl -H "x-stats-token: <token>" http://127.0.0.1:3000/api/stats
+bash deploy/cluster-healthcheck.sh
 ```
 
 ## Drain node truoc khi reboot

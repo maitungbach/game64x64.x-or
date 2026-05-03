@@ -62,7 +62,7 @@ async function waitForHealth(url) {
   const deadline = Date.now() + 8000;
   while (Date.now() < deadline) {
     try {
-      const res = await fetchJson(`${url}/api/health`);
+      const res = await fetchJson(`${url}/health`);
       if (res.statusCode === 200 && res.body && res.body.ok) {
         return;
       }

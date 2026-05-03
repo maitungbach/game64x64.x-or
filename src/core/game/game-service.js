@@ -9,7 +9,16 @@ function createGameService(options) {
   const VALID_DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
   const ROOM_ID_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const DEFAULT_ROOM_SIZE = 4;
-  const DEFAULT_GAME_DURATION_SEC = 300;
+   const DEFAULT_GAME_DURATION_SEC = 60;
+  const MIN_COLLECTIBLES_PER_ROOM = 4;
+  const MAX_COLLECTIBLES_PER_ROOM = 12;
+   const COLLECTIBLE_RESPAWN_DELAY_MS = 1200;
+   const COLLECTIBLE_TEMPLATES = [
+     { type: 'COIN', color: '#f59e0b', points: 1, weight: 50 },    // 50% common
+     { type: 'GEM', color: '#10b981', points: 2, weight: 30 },    // 30% uncommon
+     { type: 'STAR', color: '#ef4444', points: 3, weight: 15 },   // 15% rare
+     { type: 'DIAMOND', color: '#06b6d4', points: 5, weight: 5 }, // 5% legendary
+   ];
   const pendingRoomSnapshots = new Set();
   const pendingPlayerSnapshots = new Set();
   let broadcastTimer = null;
@@ -17,6 +26,8 @@ function createGameService(options) {
   let broadcastInFlight = false;
   let shuttingDown = false;
   let roomIdCounter = 0;
+  let collectibleIdCounter = 0;
+  const collectibleRespawnTimers = new Map();
 
   function normalizeRoomId(roomId) {
     const normalized = String(roomId || '').trim().toUpperCase();
@@ -51,12 +62,50 @@ function createGameService(options) {
       .padStart(6, '0')}`;
   }
 
+  function nextCollectibleId(roomId) {
+    collectibleIdCounter += 1;
+    return `${roomId}-${collectibleIdCounter.toString(36)}`;
+  }
+
   function toCellKey(x, y) {
     return `${x}:${y}`;
   }
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
+  }
+
+  function clearCollectibleRespawnTimer(roomId) {
+    const timer = collectibleRespawnTimers.get(roomId);
+    if (!timer) {
+      return;
+    }
+    clearTimeout(timer);
+    collectibleRespawnTimers.delete(roomId);
+  }
+
+  function clearRoomCollectibles(room) {
+    room.collectibles.clear();
+    room.collectibleCells.clear();
+  }
+
+  function getRoomTargetCollectibleCount(room) {
+    return Math.max(
+      MIN_COLLECTIBLES_PER_ROOM,
+      Math.min(MAX_COLLECTIBLES_PER_ROOM, room.players.size * 2)
+    );
+  }
+
+  function pickCollectibleTemplate() {
+    const totalWeight = COLLECTIBLE_TEMPLATES.reduce((sum, t) => sum + t.weight, 0);
+    let r = randomInt(totalWeight);
+    for (const template of COLLECTIBLE_TEMPLATES) {
+      r -= template.weight;
+      if (r < 0) {
+        return template;
+      }
+    }
+    return COLLECTIBLE_TEMPLATES[0];
   }
 
   function normalizeSeq(value) {
@@ -233,6 +282,40 @@ function createGameService(options) {
         player.x === x &&
         player.y === y
     );
+  }
+
+  async function isCollectibleSpawnAvailable(room, x, y) {
+    if (!room) {
+      return false;
+    }
+    if (room.collectibleCells.has(toCellKey(x, y))) {
+      return false;
+    }
+    return !(await isOccupied(x, y, null, room.id));
+  }
+
+  async function findCollectibleSpawnPosition(room) {
+    if (!room) {
+      return null;
+    }
+
+    for (let i = 0; i < config.MAX_SPAWN_ATTEMPTS; i += 1) {
+      const x = randomInt(config.GRID_SIZE);
+      const y = randomInt(config.GRID_SIZE);
+      if (await isCollectibleSpawnAvailable(room, x, y)) {
+        return { x, y };
+      }
+    }
+
+    for (let y = 0; y < config.GRID_SIZE; y += 1) {
+      for (let x = 0; x < config.GRID_SIZE; x += 1) {
+        if (await isCollectibleSpawnAvailable(room, x, y)) {
+          return { x, y };
+        }
+      }
+    }
+
+    return null;
   }
 
   async function findSpawnPosition(roomId = null) {
@@ -858,6 +941,21 @@ function createGameService(options) {
     return io.of('/').sockets.size;
   }
 
+  function buildRoomResult(roomId) {
+    const leaderboard = getRoomLeaderboard(roomId);
+    const winningScore = leaderboard[0]?.score || 0;
+    const winnerIds =
+      winningScore > 0
+        ? leaderboard.filter((entry) => entry.score === winningScore).map((entry) => entry.playerId)
+        : [];
+
+    return {
+      leaderboard,
+      winningScore,
+      winnerIds,
+    };
+  }
+
   function clearRoomEndTimer(roomId) {
     const timer = roomEndTimers.get(roomId);
     if (!timer) {
@@ -875,10 +973,15 @@ function createGameService(options) {
 
     room.status = 'ended';
     clearRoomEndTimer(roomId);
+    clearCollectibleRespawnTimer(roomId);
+    clearRoomCollectibles(room);
+    const result = buildRoomResult(roomId);
 
     return {
       room,
-      leaderboard: getRoomLeaderboard(roomId),
+      leaderboard: result.leaderboard,
+      winningScore: result.winningScore,
+      winnerIds: result.winnerIds,
     };
   }
 
@@ -899,9 +1002,12 @@ function createGameService(options) {
         if (!result) {
           return;
         }
+        emitCollectiblesNow(roomId);
         io.to(roomId).emit('roomEnded', {
           roomId,
           leaderboard: result.leaderboard,
+          winningScore: result.winningScore,
+          winnerIds: result.winnerIds,
         });
       } catch (error) {
         stats.errorsTotal += 1;
@@ -925,6 +1031,9 @@ function createGameService(options) {
     for (const roomId of roomEndTimers.keys()) {
       clearRoomEndTimer(roomId);
     }
+    for (const roomId of collectibleRespawnTimers.keys()) {
+      clearCollectibleRespawnTimer(roomId);
+    }
     pendingRoomSnapshots.clear();
     pendingPlayerSnapshots.clear();
     broadcastPending = false;
@@ -944,6 +1053,8 @@ function createGameService(options) {
       status: 'waiting',
       players: new Set([hostId]),
       scores: new Map(),
+      collectibles: new Map(),
+      collectibleCells: new Map(),
       createdAt: Date.now(),
       startedAt: null,
       endsAt: null,
@@ -993,6 +1104,8 @@ function createGameService(options) {
     room.scores.delete(playerId);
     if (room.players.size === 0 || playerId === room.hostId) {
       clearRoomEndTimer(roomId);
+      clearCollectibleRespawnTimer(roomId);
+      clearRoomCollectibles(room);
       rooms.delete(roomId);
       return { ok: true, closed: true };
     }
@@ -1010,6 +1123,11 @@ function createGameService(options) {
     if (room.players.size < 2) {
       return { ok: false, reason: 'need_more_players' };
     }
+    for (const playerId of room.players) {
+      room.scores.set(playerId, 0);
+    }
+    clearCollectibleRespawnTimer(roomId);
+    clearRoomCollectibles(room);
     room.status = 'playing';
     room.startedAt = Date.now();
     room.endsAt = room.startedAt + room.gameDurationSec * 1000;
@@ -1027,19 +1145,24 @@ function createGameService(options) {
     return room.scores.get(playerId);
   }
 
-  function getRoomLeaderboard(roomId) {
-    const room = rooms.get(roomId);
-    if (!room) {
-      return [];
-    }
-    const entries = Array.from(room.scores.entries());
-    entries.sort((a, b) => b[1] - a[1]);
-    return entries.map(([id, score], index) => ({
-      rank: index + 1,
-      playerId: id,
-      score,
-    }));
-  }
+   function getRoomLeaderboard(roomId) {
+     const room = rooms.get(roomId);
+     if (!room) {
+       return [];
+     }
+     // Build leaderboard từ tất cả players trong room, kể cả chưa có điểm
+     const entries = [];
+     for (const playerId of room.players.keys()) {
+       const score = room.scores.get(playerId) || 0;
+       entries.push([playerId, score]);
+     }
+     entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+     return entries.map(([id, score], index) => ({
+       rank: index + 1,
+       playerId: id,
+       score,
+     }));
+   }
 
   function listRooms() {
     const result = [];
@@ -1085,21 +1208,113 @@ function createGameService(options) {
     return next;
   }
 
-  // Collectible stub functions (to satisfy realtime.js calls)
-  function getCollectiblesForRoom(_roomId) {
-    return [];
+  function scheduleCollectibleRespawn(roomId) {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (!normalizedRoomId || collectibleRespawnTimers.has(normalizedRoomId)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      collectibleRespawnTimers.delete(normalizedRoomId);
+
+      (async () => {
+        try {
+          const spawned = await scheduleCollectibleSpawning(normalizedRoomId);
+          if (spawned) {
+            emitCollectiblesNow(normalizedRoomId);
+          }
+        } catch (error) {
+          stats.errorsTotal += 1;
+          console.error('[collectible-respawn] failed:', error);
+        }
+      })();
+    }, COLLECTIBLE_RESPAWN_DELAY_MS);
+
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+
+    collectibleRespawnTimers.set(normalizedRoomId, timer);
   }
 
-  function checkCollectiblePickup(_x, _y, _playerId, _roomId) {
-    return null;
+  function getCollectiblesForRoom(roomId) {
+    const room = rooms.get(normalizeRoomId(roomId));
+    if (!room) {
+      return [];
+    }
+    return Array.from(room.collectibles.values()).sort((a, b) => a.id.localeCompare(b.id));
   }
 
-  function emitCollectiblesNow(_roomId) {
-    // no-op
+  function checkCollectiblePickup(x, y, _playerId, roomId) {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (!normalizedRoomId) {
+      return null;
+    }
+
+    const room = rooms.get(normalizedRoomId);
+    if (!room || room.status !== 'playing') {
+      return null;
+    }
+
+    const cellKey = toCellKey(x, y);
+    const collectibleId = room.collectibleCells.get(cellKey);
+    if (!collectibleId) {
+      return null;
+    }
+
+    const collectible = room.collectibles.get(collectibleId);
+    if (!collectible) {
+      room.collectibleCells.delete(cellKey);
+      return null;
+    }
+
+    room.collectibles.delete(collectibleId);
+    room.collectibleCells.delete(cellKey);
+    scheduleCollectibleRespawn(normalizedRoomId);
+    return collectible;
   }
 
-  function scheduleCollectibleSpawning() {
-    // no-op
+  function emitCollectiblesNow(roomId) {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (!normalizedRoomId) {
+      return;
+    }
+    io.to(normalizedRoomId).emit('updateCollectibles', getCollectiblesForRoom(normalizedRoomId));
+  }
+
+  async function scheduleCollectibleSpawning(roomId = null) {
+    const roomIds = roomId ? [normalizeRoomId(roomId)] : Array.from(rooms.keys());
+    let spawned = false;
+
+    for (const currentRoomId of roomIds) {
+      const room = rooms.get(currentRoomId);
+      if (!room || room.status !== 'playing') {
+        continue;
+      }
+
+      const target = getRoomTargetCollectibleCount(room);
+      while (room.collectibles.size < target) {
+        const position = await findCollectibleSpawnPosition(room);
+        if (!position) {
+          break;
+        }
+
+        const template = pickCollectibleTemplate();
+        const collectible = {
+          id: nextCollectibleId(currentRoomId),
+          x: position.x,
+          y: position.y,
+          type: template.type,
+          color: template.color,
+          points: template.points,
+        };
+        room.collectibles.set(collectible.id, collectible);
+        room.collectibleCells.set(toCellKey(collectible.x, collectible.y), collectible.id);
+        spawned = true;
+      }
+    }
+
+    return spawned;
   }
 
   return {
