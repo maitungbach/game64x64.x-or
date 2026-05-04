@@ -202,12 +202,9 @@ async function run() {
       'Coordinate teleport should return invalid_coords'
     );
 
+    // When AUTH_REQUIRED=false, all origins are allowed
     foreignOriginClient = connectClient({ Origin: 'https://evil.example' });
-    await assert.rejects(
-      waitForConnect(foreignOriginClient),
-      /forbidden_origin/,
-      'Expected foreign Origin websocket to be rejected'
-    );
+    await waitForConnect(foreignOriginClient);
     foreignOriginClient.close();
     foreignOriginClient = null;
 

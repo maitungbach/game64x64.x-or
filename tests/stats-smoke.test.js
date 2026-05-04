@@ -33,7 +33,7 @@ async function run() {
     NODE_ENV: 'test',
     ENABLE_REDIS: 'false',
     STATS_TOKEN: 'secret-token',
-    AUTH_REQUIRED: 'false',
+    AUTH_REQUIRED: 'true',
     AUTH_REQUIRE_MONGO: 'false',
     STRICT_CLUSTER_CONFIG: 'false',
     MONGO_URL: '',
