@@ -1,17 +1,17 @@
 # Windows Autostart
 
 ## Muc tieu
-- Khi dang nhap Windows, tunnel SSH toi MongoDB duoc bat lai neu dang tat.
-- App `game64x64` duoc chay duoi PM2 va tu khoi dong lai neu bi dung.
-- Watchdog local kiem tra moi 30 giay de dam bao `mongoConnected=true`.
+- Khi đăng nhập Windows, tunnel SSH tới MongoDB được bật lại nếu đang tắt.
+- App `game64x64` được chạy dưới PM2 và tự khởi động lại nếu bị dừng.
+- Watchdog local kiểm tra mỗi 30 giây để đảm bảo `mongoConnected=true`.
 
 ## File lien quan
 - `scripts/windows-ensure-runtime.ps1`: dam bao tunnel + PM2 + health check.
-- `scripts/windows-runtime-watchdog.ps1`: watchdog chay nen, lap lai moi 30 giay.
-- `scripts/windows-install-startup.ps1`: cai file Startup cho user hien tai.
+- `scripts/windows-runtime-watchdog.ps1`: watchdog chạy nền, lặp lại mỗi 30 giây.
+- `scripts/windows-install-startup.ps1`: cài file Startup cho user hiện tại.
 
 ## Bien moi truong tuy chon
-Doc tu `.env` neu co:
+Đọc từ `.env` nếu có:
 
 ```env
 MONGO_TUNNEL_SSH_HOST=103.252.74.109
@@ -29,12 +29,12 @@ MONGO_TUNNEL_LOCAL_PORT=37018
 powershell -ExecutionPolicy Bypass -File scripts/windows-runtime-watchdog.ps1
 ```
 
-## Cai auto-start cho user hien tai
+## Cài auto-start cho user hiện tại
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/windows-install-startup.ps1
 ```
 
-Launcher se duoc tao trong Startup folder cua Windows va watchdog se tu chay sau khi dang nhap.
+Launcher sẽ được tạo trong Startup folder của Windows và watchdog sẽ tự chạy sau khi đăng nhập.
 
 ## Log
 - `logs/windows-runtime.log`

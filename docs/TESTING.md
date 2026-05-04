@@ -1,23 +1,23 @@
 ﻿# Testing Guide
 
 ## Smoke test realtime
-Kiem tra 3 luong chinh:
+Kiểm tra 3 luồng chính:
 - Nhiu client cung connect
-- Move duoc dong bo realtime
-- Disconnect khong de lai ghost player
+- Move được đồng bộ realtime
+- Disconnect không để lại ghost player
 
 Chay lenh:
 ```bash
 npm run test:smoke
 ```
 
-Ket qua mong doi:
+Kết quả mong đợi:
 ```text
 PASS realtime smoke: connect/move/disconnect
 ```
 
 ## Smoke test stats endpoint
-Kiem tra endpoint `/api/stats`:
+Kiểm tra endpoint `/api/stats`:
 - Khong co token -> 401
 - Co token dung -> 200 + dung schema JSON
 
@@ -26,15 +26,15 @@ Chay lenh:
 npm run test:stats
 ```
 
-Hoac chay tat ca:
+Hoặc chạy tất cả:
 ```bash
 npm run test:all
 ```
 
 ## Smoke test Redis atomic (HA)
-Kiem tra khi bat Redis:
-- Khong co 2 player trung 1 o trong luong update realtime
-- Redis index theo player va theo cell luon dong bo
+Kiểm tra khi bật Redis:
+- Không có 2 player trùng 1 ô trong lưới update realtime
+- Redis index theo player và theo cell luôn đồng bộ
 
 Chay lenh:
 ```bash
@@ -42,13 +42,13 @@ npm run test:redis
 ```
 
 Luu y:
-- Test tu skip neu may khong co Redis tai `REDIS_URL`.
-- Neu Redis co san, test se tao key tam va tu xoa sau khi xong.
+- Test tự skip nếu máy không có Redis tại `REDIS_URL`.
+- Nếu Redis có sẵn, test sẽ tạo key tạm và tự xóa sau khi xong.
 
 ## Luu y
 - Cac test tu bat server rieng (`3101`, `3102`, `3103`).
-- `test:smoke` va `test:stats` chay voi `ENABLE_REDIS=false`.
-- `test:redis` chay voi `ENABLE_REDIS=true`.
+- `test:smoke` và `test:stats` chạy với `ENABLE_REDIS=false`.
+- `test:redis` chạy với `ENABLE_REDIS=true`.
 
 ## Load test nhieu client
 Mo phong tai voi nhieu client Socket.io:

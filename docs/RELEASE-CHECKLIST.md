@@ -1,28 +1,28 @@
 # Release Checklist
 
-Checklist nay dung truoc moi lan deploy hoac restart dich vu.
+Checklist này dùng trước mỗi lần deploy hoặc restart dịch vụ.
 
 ## Truoc khi release
-- Cap nhat `.env` dung gia tri cho `PORT`, `REDIS_URL`, `MONGO_URL`, `ADMIN_EMAILS`, `STATS_TOKEN`.
+- Cập nhật `.env` đúng giá trị cho `PORT`, `REDIS_URL`, `MONGO_URL`, `ADMIN_EMAILS`, `STATS_TOKEN`.
 - Xac nhan `NODE_ENV=production` tren node thuc te.
-- Neu chay multi-server, kiem tra `ENABLE_REDIS=true` va Redis/Mongo khong tro ve loopback sai muc dich.
+- Nếu chạy multi-server, kiểm tra `ENABLE_REDIS=true` và Redis/Mongo không trỏ về loopback sai mục đích.
 - Chay `npm run lint`.
 - Chay `npm run test:all`.
 
 ## Truoc khi cut over
-- Kiem tra PM2 status xanh tren cac app node.
-- Neu co load balancer, drain node truoc khi restart.
-- Backup nhanh `.env` va ghi lai commit/branch dang deploy.
+- Kiểm tra PM2 status xanh trên các app node.
+- Nếu có load balancer, drain node trước khi restart.
+- Backup nhanh `.env` và ghi lại commit/branch đang deploy.
 
 ## Sau khi deploy
-- Kiem tra `GET /health` tra `200`.
-- Kiem tra `/api/stats` bang `STATS_TOKEN` hoac admin session.
-- Dang nhap `/auth.html`, vao `/game.html`, mo them `/admin`.
-- Thu lookup user va revoke session tren admin panel.
-- Xac nhan realtime van connect/move/disconnect duoc.
+- Kiểm tra `GET /health` trả `200`.
+- Kiểm tra `/api/stats` bằng `STATS_TOKEN` hoặc admin session.
+- Đăng nhập `/auth.html`, vào `/game.html`, mở thêm `/admin`.
+- Thử lookup user và revoke session trên admin panel.
+- Xác nhận realtime vẫn connect/move/disconnect được.
 
 ## Rollback
-- Quay lai commit truoc do.
-- Khoi phuc `.env` neu release vua sua cau hinh.
-- Restart PM2 voi `--update-env` neu can.
-- Kiem tra lai `/health`, `/api/stats`, `/admin`.
+- Quay lại commit trước đó.
+- Khôi phục `.env` nếu release vừa sửa cấu hình.
+- Restart PM2 với `--update-env` nếu cần.
+- Kiểm tra lại `/health`, `/api/stats`, `/admin`.

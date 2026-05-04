@@ -118,7 +118,7 @@ async function recoverAuthSessionAfterSocketError() {
   }
 
   authRecoveryInFlight = true;
-  statusEl.textContent = 'Ket noi dang duoc xac thuc lai...';
+  statusEl.textContent = 'Kết nối đang được xác thực lại...';
 
   try {
     const me = await fetchAuthMe();
@@ -137,7 +137,7 @@ async function recoverAuthSessionAfterSocketError() {
       socket.connect();
     }
   } catch (_error) {
-    statusEl.textContent = 'Khong the xac thuc lai phien dang nhap. Dang thu ket noi lai...';
+    statusEl.textContent = 'Không thể xác thực lại phiên đăng nhập. Đang thử kết nối lại...';
     window.setTimeout(() => {
       authRecoveryInFlight = false;
       if (!socket.connected && !socket.active && !redirectingToAuth) {
@@ -712,7 +712,7 @@ socket.on('collectiblePickedUp', (data) => {
   if (!data || !data.points) return;
   const currentUserId = readSession()?.id || null;
   if (currentUserId && data.playerId === currentUserId) {
-    statusEl.textContent = `Ban vua nhat +${data.points} diem!`;
+    statusEl.textContent = `Bạn vừa nhặt +${data.points} điểm!`;
   }
 
   if (data.collectibleId) {
@@ -736,7 +736,7 @@ socket.on('connect_error', (error) => {
     recoverAuthSessionAfterSocketError();
     return;
   }
-  statusEl.textContent = 'Ket noi tam thoi bi gian doan. He thong dang tu ket noi lai...';
+  statusEl.textContent = 'Kết nối tạm thời bị gián đoạn. Hệ thống đang tự kết nối lại...';
 });
 
 socket.on('disconnect', (reason) => {
@@ -861,18 +861,18 @@ function getRoomEndMessage(data) {
   const currentUserId = readSession()?.id || null;
 
   if (winnerIds.length === 0) {
-    return 'Het gio. Chua ai nhat duoc o diem thuong.';
+    return 'Hết giờ. Chưa ai nhặt được ở điểm thưởng.';
   }
   if (currentUserId && winnerIds.includes(currentUserId)) {
     if (winnerIds.length > 1) {
-      return `Het gio. Ban dong thang voi ${winningScore} diem.`;
+      return `Hết giờ. Bạn đồng thắng với ${winningScore} điểm.`;
     }
-    return `Het gio. Ban chien thang voi ${winningScore} diem.`;
+    return `Hết giờ. Bạn chiến thắng với ${winningScore} điểm.`;
   }
   if (winnerIds.length > 1) {
-    return `Het gio. Co ${winnerIds.length} nguoi dong thang voi ${winningScore} diem.`;
+    return `Hết giờ. Có ${winnerIds.length} người đồng thắng với ${winningScore} điểm.`;
   }
-  return `Het gio. Da co nguoi chien thang voi ${winningScore} diem.`;
+  return `Hết giờ. Đã có người chiến thắng với ${winningScore} điểm.`;
 }
 
 function createRoom() {

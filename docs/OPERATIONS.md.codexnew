@@ -2,30 +2,30 @@
 
 ## Admin dashboard
 - URL: `/admin`
-- Hien thi:
+- Hiển thị:
   - Health (`/api/health`)
   - Runtime stats (`/api/stats`)
   - Counters connect/move/disconnect/error
 
-Dashboard poll moi 2 giay.
+Dashboard poll mỗi 2 giây.
 
 ## Bao ve /api/stats
-Neu dat `STATS_TOKEN`, endpoint `/api/stats` se yeu cau header:
+Nếu đặt `STATS_TOKEN`, endpoint `/api/stats` sẽ yêu cầu header:
 - `x-stats-token: <token>`
 
-Trang `/admin` co o nhap token de gui header nay.
+Trang `/admin` có ô nhập token để gửi header này.
 
 ## Endpoint
 - `GET /api/health`: health check nhanh
-- `GET /api/stats`: runtime stats (co the can token)
+- `GET /api/stats`: runtime stats (có thể cần token)
 
-## Kiem tra nhanh
+## Kiểm tra nhanh
 ```bash
 curl http://127.0.0.1:3000/api/health
 curl -H "x-stats-token: <token>" http://127.0.0.1:3000/api/stats
 ```
 
-## Drain node truoc khi reboot
+## Drain node trước khi reboot
 Tren LB `103.252.74.109` / `172.16.10.202`:
 ```bash
 sudo /usr/local/bin/game64x64-node-state status
@@ -35,8 +35,8 @@ sudo /usr/local/bin/game64x64-node-state undrain 172.16.10.216
 ```
 
 ## Persist env cho PM2
-App nodes doc env tu file `/opt/game64x64/.env` thong qua `config/ecosystem.config.js`.
-Sau khi sua `.env`, nap lai:
+App nodes đọc env từ file `/opt/game64x64/.env` thông qua `config/ecosystem.config.js`.
+Sau khi sửa `.env`, nạp lại:
 ```bash
 cd /opt/game64x64
 pm2 restart config/ecosystem.config.js --only game64x64 --update-env
@@ -44,8 +44,8 @@ pm2 save
 ```
 
 ## Broadcast batching
-Server gop cac request broadcast trong khoang `BROADCAST_INTERVAL_MS` (mac dinh 33ms)
-nham giam tan suat `updatePlayers` duoi tai cao.
+Server gộp các request broadcast trong khoảng `BROADCAST_INTERVAL_MS` (mặc định 33ms)
+nhằm giảm tần suất `updatePlayers` khi tải cao.
 
 Theo doi trong `/api/stats`:
 - `broadcastRequestsTotal`

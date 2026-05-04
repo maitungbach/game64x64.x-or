@@ -1,12 +1,12 @@
 # Deployment Guide (HA: 2 App Node + LB + Shared Redis/Mongo)
 
-## Tong quan
+## Tổng quan
 - App Node #1: `172.16.10.216` (`game64x64`, PORT=3000)
 - App Node #2: `172.16.10.253` (`game64x64`, PORT=3000)
 - Shared data node: `172.16.10.202` (Redis + MongoDB)
 - Public LB: `103.252.74.109` / `172.16.10.202` (Nginx)
 
-## 1) Cai dat Redis + MongoDB tren data node
+## 1) Cài đặt Redis + MongoDB trên data node
 ```bash
 sudo apt update
 sudo apt install -y redis-server
@@ -15,7 +15,7 @@ sudo systemctl start redis-server
 redis-cli -a ColorBox64x64_Redis_2026 ping
 ```
 
-MongoDB tren Ubuntu 24.04:
+MongoDB trên Ubuntu 24.04:
 ```bash
 curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc \
   | sudo gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
@@ -27,8 +27,8 @@ sudo systemctl enable mongod
 sudo systemctl start mongod
 ```
 
-## 2) Trien khai app tren tung Node
-Tren moi Node:
+## 2) Triển khai app trên từng Node
+Trên mỗi Node:
 ```bash
 git clone <REPO_URL> game64x64
 cd game64x64
@@ -36,7 +36,7 @@ npm install
 mkdir -p logs
 ```
 
-Tao tunnel local de app node truy cap MongoDB qua `127.0.0.1:37018`:
+Tạo tunnel local để app node truy cập MongoDB qua `127.0.0.1:37018`:
 ```bash
 sudo tee /etc/systemd/system/game64x64-mongo-tunnel.service >/dev/null <<'EOF'
 [Unit]
@@ -59,7 +59,7 @@ sudo systemctl enable --now game64x64-mongo-tunnel
 ss -lntp | grep 37018
 ```
 
-Tao file `.env`:
+Tạo file `.env`:
 ```bash
 PORT=3000
 NODE_ENV=production
@@ -82,15 +82,15 @@ AUTH_SEED_TEST_USERS=false
 AUTH_ALLOW_CONCURRENT_SEED_USERS=false
 ```
 
-Chay PM2:
+Chạy PM2:
 ```bash
 pm2 start config/ecosystem.config.js
 pm2 save
 pm2 startup
 ```
 
-## 3) Cau hinh Nginx Load Balancer
-Tren may Nginx:
+## 3) Cấu hình Nginx Load Balancer
+Trên máy Nginx:
 ```bash
 sudo cp deploy/nginx.game64x64.lb.conf /etc/nginx/sites-available/game64x64-lb
 sudo ln -s /etc/nginx/sites-available/game64x64-lb /etc/nginx/sites-enabled/game64x64-lb
@@ -98,23 +98,23 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-LB hien tai:
+LB hiện tại:
 - `172.16.10.216:80`
 - `172.16.10.253:80`
 
-Khuyen nghi giu `ip_hash` trong upstream de on dinh session khi fallback transport xay ra.
+Khuyến nghị giữ `ip_hash` trong upstream để ổn định session khi fallback transport xảy ra.
 
 ## 4) Verify nhanh
-- Truy cap: `https://colorbox64x64.online/api/health`
-- Mo 3 tab, di chuyen o tab 1, tab 2-3 phai cap nhat real-time.
+- Truy cập: `https://colorbox64x64.online/api/health`
+- Mở 3 tab, di chuyển ở tab 1, tab 2-3 phải cập nhật real-time.
 
 ## 5) Test failover
-1. Dang de nguoi dung online.
-2. Tren Node #1: `pm2 stop game64x64`
-3. Kiem tra game van phuc vu qua Node #2.
-4. Bat lai Node #1: `pm2 start game64x64`
+1. Đặt người dùng online.
+2. Trên Node #1: `pm2 stop game64x64`
+3. Kiểm tra game vẫn phục vụ qua Node #2.
+4. Bật lại Node #1: `pm2 start game64x64`
 
-## 6) Drain node truoc khi reboot
+## 6) Drain node trước khi reboot
 Tren LB:
 ```bash
 sudo /usr/local/bin/game64x64-node-state status
@@ -122,13 +122,13 @@ sudo /usr/local/bin/game64x64-node-state drain 172.16.10.216
 sudo /usr/local/bin/game64x64-node-state undrain 172.16.10.216
 ```
 
-## 7) Kiem tra dong bo Redis
+## 7) Kiểm tra đồng bộ Redis
 ```bash
 redis-cli -a ColorBox64x64_Redis_2026 -h 172.16.10.202 HLEN game64x64:players
 redis-cli -a ColorBox64x64_Redis_2026 -h 172.16.10.202 HGETALL game64x64:players
 ```
 
-## Van hanh
+## Vận hành
 ```bash
 pm2 logs game64x64
 pm2 restart config/ecosystem.config.js --only game64x64 --update-env
